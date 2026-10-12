@@ -1,150 +1,74 @@
 /**
  * @file main.c
- * @brief RetroAchievements 3DS - Phase 5: UI Engine & Rendering
+ * @brief RetroAchievements 3DS - Phase 7: Navigation & State Management
  */
 
+#include "async_api.h"
+#include "badge.h"
 #include "config.h"
 #include "network.h"
 #include "retro_api.h"
 #include "ui.h"
-#include "badge.h"
 
 #include <3ds.h>
 #include <malloc.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 // Subsystem lifecycle tracking flags
-static bool s_gfx_initialized   = false;
-static bool s_romfs_initialized = false;
-static bool s_cfgu_initialized  = false;
-static bool s_ui_initialized    = false;
-static bool s_badge_initialized = false;
-static bool s_net_initialized   = false;
+static bool s_gfx_initialized       = false;
+static bool s_romfs_initialized     = false;
+static bool s_cfgu_initialized      = false;
+static bool s_ui_initialized        = false;
+static bool s_badge_initialized     = false;
+static bool s_net_initialized       = false;
+static bool s_async_initialized     = false;
 
 static app_config_t        s_config;
 static config_status_t     s_config_status;
 
 static ra_user_summary_t   s_user_summary;
-static bool                s_user_summary_loaded = false;
+static bool                s_user_summary_loaded  = false;
 
 static ra_game_progress_t  s_game_progress;
 static bool                s_game_progress_loaded = false;
 
-static ui_view_mode_t      s_view_mode       = UI_VIEW_SUMMARY;
-static ui_state_t          s_ui_state        = UI_STATE_IDLE;
-static char                s_status_msg[128] = {0};
+// Application State Machine
+static app_state_t         s_app_state            = APP_STATE_INIT;
+static app_state_t         s_prev_state           = APP_STATE_USER_SUMMARY;
+static bool                s_is_loading           = false;
+static uint32_t            s_frame_counter        = 0;
+static char                s_status_msg[128]      = {0};
 
-static float               s_scroll_y        = 0.0f;
-static int                 s_selected_index  = 0;
+static float               s_scroll_y             = 0.0f;
+static int                 s_selected_index       = 0;
 
-static void init_subsystems(void)
+// Input tracking for smooth touch and button repeating
+static bool                s_touch_active         = false;
+static touchPosition       s_touch_start          = {0, 0};
+static float               s_touch_scroll_start   = 0.0f;
+static bool                s_touch_dragged        = false;
+static int                 s_key_repeat_timer     = 0;
+
+static void clamp_scroll_only(size_t total_items)
 {
-    Result rc;
+    const float view_h = 214.0f - 28.0f; // 186 px
+    const float max_scroll = ((float)total_items * UI_ITEM_HEIGHT) - view_h;
 
-    // 1. Graphics display controller
-    gfxInitDefault();
-    s_gfx_initialized = true;
-
-    // 2. RomFS (embedded read-only assets & certs)
-    rc = romfsInit();
-    if (R_SUCCEEDED(rc))
+    if (s_scroll_y < 0.0f)
     {
-        s_romfs_initialized = true;
+        s_scroll_y = 0.0f;
     }
-
-    // 3. System configuration service
-    rc = cfguInit();
-    if (R_SUCCEEDED(rc))
+    else if (max_scroll > 0.0f && s_scroll_y > max_scroll)
     {
-        s_cfgu_initialized = true;
+        s_scroll_y = max_scroll;
     }
-
-    // 4. Citro3D / Citro2D Dual-Screen Graphics Pipeline
-    if (ui_init())
+    else if (max_scroll <= 0.0f)
     {
-        s_ui_initialized = true;
-
-        // 5. Badge Texture & Background Download Subsystem
-        if (badge_subsystem_init())
-        {
-            s_badge_initialized = true;
-        }
-    }
-
-    // 6. Network subsystem
-    net_result_t net_rc = network_init();
-    if (net_rc == NET_OK)
-    {
-        s_net_initialized = true;
-    }
-
-    // 7. Application configuration & SDMC storage
-    s_config_status = config_load(&s_config);
-    if (s_config_status == CONFIG_CREATED_TEMPLATE)
-    {
-        snprintf(s_status_msg, sizeof(s_status_msg), "Template created at sdmc:/3ds/retroachievements/config.ini");
-    }
-    else if (!s_config.is_configured)
-    {
-        snprintf(s_status_msg, sizeof(s_status_msg), "Credentials unconfigured. Edit config.ini.");
-    }
-}
-
-static void cleanup_subsystems(void)
-{
-    // Clean up domain models
-    if (s_game_progress_loaded)
-    {
-        ra_game_progress_free(&s_game_progress);
-        s_game_progress_loaded = false;
-    }
-
-    // Securely wipe sensitive in-memory credentials before teardown
-    config_secure_wipe(&s_config);
-
-    // 1. Badge Subsystem (Stop worker thread and free linear memory textures)
-    if (s_badge_initialized)
-    {
-        badge_subsystem_cleanup();
-        s_badge_initialized = false;
-    }
-
-    // 2. Network subsystem
-    if (s_net_initialized)
-    {
-        network_cleanup();
-        s_net_initialized = false;
-    }
-
-    // 3. Citro2D / Citro3D UI pipeline
-    if (s_ui_initialized)
-    {
-        ui_cleanup();
-        s_ui_initialized = false;
-    }
-
-    // 3. CFGU service
-    if (s_cfgu_initialized)
-    {
-        cfguExit();
-        s_cfgu_initialized = false;
-    }
-
-    // 4. RomFS
-    if (s_romfs_initialized)
-    {
-        romfsExit();
-        s_romfs_initialized = false;
-    }
-
-    // 5. Graphics
-    if (s_gfx_initialized)
-    {
-        gfxExit();
-        s_gfx_initialized = false;
+        s_scroll_y = 0.0f;
     }
 }
 
@@ -180,43 +104,416 @@ static void clamp_scroll_and_selection(size_t total_items)
         s_scroll_y = sel_y_bottom - view_h;
     }
 
-    const float max_scroll = ((float)total_items * UI_ITEM_HEIGHT) - view_h;
-    if (s_scroll_y < 0.0f)
+    clamp_scroll_only(total_items);
+}
+
+static void trigger_fetch_user_summary(void)
+{
+    if (!s_config.is_configured)
     {
-        s_scroll_y = 0.0f;
+        s_prev_state = s_app_state;
+        s_app_state = APP_STATE_ERROR;
+        snprintf(s_status_msg, sizeof(s_status_msg), "Credentials unconfigured. Edit sdmc:/3ds/retroachievements/config.ini");
+        return;
     }
-    else if (max_scroll > 0.0f && s_scroll_y > max_scroll)
+
+    u8 wifi_strength = 0;
+    if (!network_get_status(&wifi_strength) || wifi_strength == 0)
     {
-        s_scroll_y = max_scroll;
+        s_prev_state = s_app_state;
+        s_app_state = APP_STATE_ERROR;
+        snprintf(s_status_msg, sizeof(s_status_msg), "Wi-Fi disconnected. Turn on Wi-Fi and retry.");
+        return;
+    }
+
+    s_is_loading = true;
+    snprintf(s_status_msg, sizeof(s_status_msg), "Syncing profile for %s...", s_config.username);
+    async_api_request_user_summary(&s_config);
+}
+
+static void trigger_fetch_game_progress(uint32_t game_id)
+{
+    if (!s_config.is_configured)
+    {
+        s_prev_state = s_app_state;
+        s_app_state = APP_STATE_ERROR;
+        snprintf(s_status_msg, sizeof(s_status_msg), "Credentials unconfigured. Edit sdmc:/3ds/retroachievements/config.ini");
+        return;
+    }
+
+    u8 wifi_strength = 0;
+    if (!network_get_status(&wifi_strength) || wifi_strength == 0)
+    {
+        s_prev_state = s_app_state;
+        s_app_state = APP_STATE_ERROR;
+        snprintf(s_status_msg, sizeof(s_status_msg), "Wi-Fi disconnected. Turn on Wi-Fi and retry.");
+        return;
+    }
+
+    s_is_loading = true;
+    s_app_state = APP_STATE_GAME_DETAIL;
+    s_selected_index = 0;
+    s_scroll_y = 0.0f;
+
+    snprintf(s_status_msg, sizeof(s_status_msg), "Fetching achievements for Game ID %lu...", (unsigned long)game_id);
+    async_api_request_game_progress(&s_config, game_id);
+}
+
+static void handle_touch_tap(u16 px, u16 py)
+{
+    size_t current_items = 0;
+    if (s_app_state == APP_STATE_GAME_DETAIL && s_game_progress_loaded)
+    {
+        current_items = s_game_progress.achievement_count;
+    }
+    else if (s_app_state == APP_STATE_USER_SUMMARY && s_user_summary_loaded)
+    {
+        current_items = s_user_summary.recent_games_count;
+    }
+
+    if (s_app_state == APP_STATE_ERROR)
+    {
+        // Touch Hitboxes for Error Recovery screen
+        // Button 1: Retry (y: 40..84)
+        if (py >= 40 && py <= 84 && px >= 16 && px <= 304)
+        {
+            if (s_prev_state == APP_STATE_GAME_DETAIL && s_game_progress_loaded)
+            {
+                trigger_fetch_game_progress(s_game_progress.game_id);
+            }
+            else
+            {
+                trigger_fetch_user_summary();
+            }
+        }
+        // Button 2: Return to Profile (y: 94..138)
+        else if (py >= 94 && py <= 138 && px >= 16 && px <= 304)
+        {
+            s_app_state = APP_STATE_USER_SUMMARY;
+            snprintf(s_status_msg, sizeof(s_status_msg), "Returned to Profile Overview.");
+        }
+        // Button 3: Reload Config (y: 148..192)
+        else if (py >= 148 && py <= 192 && px >= 16 && px <= 304)
+        {
+            s_config_status = config_load(&s_config);
+            if (s_config.is_configured)
+            {
+                snprintf(s_status_msg, sizeof(s_status_msg), "Config reloaded for user: %s", s_config.username);
+                s_app_state = APP_STATE_USER_SUMMARY;
+                trigger_fetch_user_summary();
+            }
+            else
+            {
+                snprintf(s_status_msg, sizeof(s_status_msg), "Credentials still unconfigured in config.ini");
+            }
+        }
+    }
+    else if (s_app_state == APP_STATE_GAME_DETAIL)
+    {
+        // Virtual Back Button on Left: x in [0, 72], y in [0, 26]
+        if (px <= 72 && py <= 26)
+        {
+            if (s_is_loading)
+            {
+                async_api_cancel();
+                s_is_loading = false;
+            }
+            s_app_state = APP_STATE_USER_SUMMARY;
+            s_selected_index = 0;
+            s_scroll_y = 0.0f;
+            return;
+        }
+
+        // Virtual Sync Button on Right: x in [248, 320], y in [0, 26]
+        if (px >= 248 && py <= 26)
+        {
+            if (s_game_progress_loaded)
+            {
+                trigger_fetch_game_progress(s_game_progress.game_id);
+            }
+            return;
+        }
+
+        // List Area tap: y in [28, 214]
+        if (py >= 28 && py <= 214 && current_items > 0)
+        {
+            int row = (int)(( (float)py - 28.0f + s_scroll_y ) / UI_ITEM_HEIGHT);
+            if (row >= 0 && row < (int)current_items)
+            {
+                s_selected_index = row;
+                clamp_scroll_and_selection(current_items);
+            }
+        }
+    }
+    else if (s_app_state == APP_STATE_USER_SUMMARY)
+    {
+        // Virtual Sync Button on Right: x in [248, 320], y in [0, 26]
+        if (px >= 248 && py <= 26)
+        {
+            trigger_fetch_user_summary();
+            return;
+        }
+
+        // List Area tap: y in [28, 214]
+        if (py >= 28 && py <= 214 && current_items > 0)
+        {
+            int row = (int)(( (float)py - 28.0f + s_scroll_y ) / UI_ITEM_HEIGHT);
+            if (row >= 0 && row < (int)current_items)
+            {
+                if (s_selected_index == row)
+                {
+                    // Second tap on focused game: inspect achievements!
+                    uint32_t chosen_game = s_user_summary.recent_games[row].game_id;
+                    trigger_fetch_game_progress(chosen_game);
+                }
+                else
+                {
+                    s_selected_index = row;
+                    clamp_scroll_and_selection(current_items);
+                }
+            }
+        }
+    }
+}
+
+static void init_subsystems(void)
+{
+    Result rc;
+
+    // 1. Graphics display controller
+    gfxInitDefault();
+    s_gfx_initialized = true;
+
+    // 2. RomFS (embedded root certificates)
+    rc = romfsInit();
+    if (R_SUCCEEDED(rc))
+    {
+        s_romfs_initialized = true;
+    }
+
+    // 3. System configuration service
+    rc = cfguInit();
+    if (R_SUCCEEDED(rc))
+    {
+        s_cfgu_initialized = true;
+    }
+
+    // 4. Citro3D / Citro2D Dual-Screen Graphics Pipeline
+    if (ui_init())
+    {
+        s_ui_initialized = true;
+
+        // 5. Badge Texture & Asset Cache Subsystem
+        if (badge_subsystem_init())
+        {
+            s_badge_initialized = true;
+        }
+    }
+
+    // 6. Network Subsystem
+    net_result_t net_rc = network_init();
+    if (net_rc == NET_OK)
+    {
+        s_net_initialized = true;
+    }
+
+    // 7. Non-blocking Async API Worker Thread
+    if (async_api_init())
+    {
+        s_async_initialized = true;
+    }
+
+    // 8. Application configuration & SDMC storage
+    s_config_status = config_load(&s_config);
+    if (s_config_status == CONFIG_CREATED_TEMPLATE)
+    {
+        s_app_state = APP_STATE_ERROR;
+        snprintf(s_status_msg, sizeof(s_status_msg), "Template config created at sdmc:/3ds/retroachievements/config.ini");
+    }
+    else if (!s_config.is_configured)
+    {
+        s_app_state = APP_STATE_ERROR;
+        snprintf(s_status_msg, sizeof(s_status_msg), "Credentials unconfigured. Edit config.ini.");
+    }
+    else
+    {
+        s_app_state = APP_STATE_USER_SUMMARY;
+        // Automatically initiate background profile sync on boot
+        trigger_fetch_user_summary();
+    }
+}
+
+static void cleanup_subsystems(void)
+{
+    // Clean up domain models
+    if (s_game_progress_loaded)
+    {
+        ra_game_progress_free(&s_game_progress);
+        s_game_progress_loaded = false;
+    }
+
+    // 1. Stop background async API worker
+    if (s_async_initialized)
+    {
+        async_api_cleanup();
+        s_async_initialized = false;
+    }
+
+    // 2. Securely wipe sensitive in-memory credentials
+    config_secure_wipe(&s_config);
+
+    // 3. Badge Subsystem (Stop worker thread and free linear memory textures)
+    if (s_badge_initialized)
+    {
+        badge_subsystem_cleanup();
+        s_badge_initialized = false;
+    }
+
+    // 4. Network Subsystem
+    if (s_net_initialized)
+    {
+        network_cleanup();
+        s_net_initialized = false;
+    }
+
+    // 5. Citro2D / Citro3D UI pipeline
+    if (s_ui_initialized)
+    {
+        ui_cleanup();
+        s_ui_initialized = false;
+    }
+
+    // 6. CFGU service
+    if (s_cfgu_initialized)
+    {
+        cfguExit();
+        s_cfgu_initialized = false;
+    }
+
+    // 7. RomFS
+    if (s_romfs_initialized)
+    {
+        romfsExit();
+        s_romfs_initialized = false;
+    }
+
+    // 8. Graphics
+    if (s_gfx_initialized)
+    {
+        gfxExit();
+        s_gfx_initialized = false;
     }
 }
 
 int main(int argc, char* argv[])
 {
+    (void)argc;
+    (void)argv;
+
     init_subsystems();
 
     while (aptMainLoop())
     {
+        s_frame_counter++;
+
+        // 1. Poll Background Async API Worker
+        async_req_type_t completed_type = ASYNC_REQ_NONE;
+        char err_temp[128] = {0};
+        async_api_status_t async_res = async_api_poll(
+            &completed_type,
+            &s_user_summary,
+            &s_game_progress,
+            err_temp,
+            sizeof(err_temp)
+        );
+
+        if (async_res == ASYNC_STATUS_SUCCESS)
+        {
+            s_is_loading = false;
+            if (completed_type == ASYNC_REQ_USER_SUMMARY)
+            {
+                s_user_summary_loaded = true;
+                s_app_state = APP_STATE_USER_SUMMARY;
+                s_selected_index = 0;
+                s_scroll_y = 0.0f;
+                snprintf(s_status_msg, sizeof(s_status_msg), "Profile updated for %s", s_user_summary.username);
+            }
+            else if (completed_type == ASYNC_REQ_GAME_PROGRESS)
+            {
+                s_game_progress_loaded = true;
+                s_app_state = APP_STATE_GAME_DETAIL;
+                s_selected_index = 0;
+                s_scroll_y = 0.0f;
+                snprintf(s_status_msg, sizeof(s_status_msg), "Loaded: %s (%zu achievements)",
+                         s_game_progress.title, s_game_progress.achievement_count);
+            }
+        }
+        else if (async_res == ASYNC_STATUS_ERROR)
+        {
+            s_is_loading = false;
+            s_prev_state = s_app_state;
+            s_app_state = APP_STATE_ERROR;
+            strncpy(s_status_msg, err_temp, sizeof(s_status_msg) - 1);
+            s_status_msg[sizeof(s_status_msg) - 1] = '\0';
+        }
+
+        // 2. Poll Input Services
         hidScanInput();
         const u32 kDown = hidKeysDown();
         const u32 kHeld = hidKeysHeld();
+        const u32 kUp   = hidKeysUp();
 
         if (kDown & KEY_START)
         {
-            break; // Clean return to hbmenu
+            break; // Clean exit to Homebrew Launcher
         }
 
         size_t current_items = 0;
-        if (s_view_mode == UI_VIEW_GAME_PROGRESS && s_game_progress_loaded)
+        if (s_app_state == APP_STATE_GAME_DETAIL && s_game_progress_loaded)
         {
             current_items = s_game_progress.achievement_count;
         }
-        else if (s_view_mode == UI_VIEW_SUMMARY && s_user_summary_loaded)
+        else if (s_app_state == APP_STATE_USER_SUMMARY && s_user_summary_loaded)
         {
             current_items = s_user_summary.recent_games_count;
         }
 
-        // Navigation (Up/Down)
+        // 3. Touch Screen Input & Gesture Handling
+        if (kDown & KEY_TOUCH)
+        {
+            s_touch_active = true;
+            hidTouchRead(&s_touch_start);
+            s_touch_scroll_start = s_scroll_y;
+            s_touch_dragged = false;
+        }
+        if (kHeld & KEY_TOUCH)
+        {
+            if (s_touch_active)
+            {
+                touchPosition cur;
+                hidTouchRead(&cur);
+                float dy = (float)(s_touch_start.py - cur.py);
+                if (fabsf(dy) > 5.0f || s_touch_dragged)
+                {
+                    s_touch_dragged = true;
+                    s_scroll_y = s_touch_scroll_start + dy;
+                    clamp_scroll_only(current_items);
+                }
+            }
+        }
+        if (kUp & KEY_TOUCH)
+        {
+            if (s_touch_active)
+            {
+                s_touch_active = false;
+                if (!s_touch_dragged)
+                {
+                    handle_touch_tap(s_touch_start.px, s_touch_start.py);
+                }
+            }
+        }
+
+        // 4. Gamepad Navigation (D-Pad & Circle Pad with hold acceleration)
         if (kDown & (KEY_DUP | KEY_CPAD_UP))
         {
             if (s_selected_index > 0)
@@ -224,6 +521,7 @@ int main(int argc, char* argv[])
                 s_selected_index--;
                 clamp_scroll_and_selection(current_items);
             }
+            s_key_repeat_timer = 0;
         }
         else if (kDown & (KEY_DDOWN | KEY_CPAD_DOWN))
         {
@@ -232,152 +530,142 @@ int main(int argc, char* argv[])
                 s_selected_index++;
                 clamp_scroll_and_selection(current_items);
             }
+            s_key_repeat_timer = 0;
+        }
+        else if (kHeld & (KEY_DUP | KEY_CPAD_UP))
+        {
+            s_key_repeat_timer++;
+            if (s_key_repeat_timer > 14 && (s_key_repeat_timer % 4 == 0))
+            {
+                if (s_selected_index > 0)
+                {
+                    s_selected_index--;
+                    clamp_scroll_and_selection(current_items);
+                }
+            }
+        }
+        else if (kHeld & (KEY_DDOWN | KEY_CPAD_DOWN))
+        {
+            s_key_repeat_timer++;
+            if (s_key_repeat_timer > 14 && (s_key_repeat_timer % 4 == 0))
+            {
+                if (s_selected_index < (int)current_items - 1)
+                {
+                    s_selected_index++;
+                    clamp_scroll_and_selection(current_items);
+                }
+            }
+        }
+        else
+        {
+            s_key_repeat_timer = 0;
         }
 
-        // Smooth scroll handling with Circle Pad when held
-        if (kHeld & KEY_CPAD_UP)
+        // 5. Gamepad Action Mappings
+        if (kDown & KEY_A)
         {
-            s_scroll_y -= 4.0f;
-            clamp_scroll_and_selection(current_items);
-        }
-        else if (kHeld & KEY_CPAD_DOWN)
-        {
-            s_scroll_y += 4.0f;
-            clamp_scroll_and_selection(current_items);
+            if (s_app_state == APP_STATE_ERROR)
+            {
+                if (s_prev_state == APP_STATE_GAME_DETAIL && s_game_progress_loaded)
+                {
+                    trigger_fetch_game_progress(s_game_progress.game_id);
+                }
+                else
+                {
+                    trigger_fetch_user_summary();
+                }
+            }
+            else if (s_app_state == APP_STATE_USER_SUMMARY)
+            {
+                if (s_user_summary_loaded && s_user_summary.recent_games_count > 0 &&
+                    s_selected_index < (int)s_user_summary.recent_games_count)
+                {
+                    uint32_t chosen_game = s_user_summary.recent_games[s_selected_index].game_id;
+                    trigger_fetch_game_progress(chosen_game);
+                }
+                else
+                {
+                    trigger_fetch_user_summary();
+                }
+            }
+            // In APP_STATE_GAME_DETAIL, A simply keeps focus on selected achievement
         }
 
-        // Toggle View Mode (X)
+        if (kDown & KEY_B)
+        {
+            if (s_app_state == APP_STATE_GAME_DETAIL)
+            {
+                if (s_is_loading)
+                {
+                    async_api_cancel();
+                    s_is_loading = false;
+                }
+                s_app_state = APP_STATE_USER_SUMMARY;
+                s_selected_index = 0;
+                s_scroll_y = 0.0f;
+            }
+            else if (s_app_state == APP_STATE_ERROR)
+            {
+                s_app_state = APP_STATE_USER_SUMMARY;
+                snprintf(s_status_msg, sizeof(s_status_msg), "Returned to Profile Overview.");
+            }
+        }
+
         if (kDown & KEY_X)
         {
-            s_view_mode = (s_view_mode == UI_VIEW_SUMMARY) ? UI_VIEW_GAME_PROGRESS : UI_VIEW_SUMMARY;
-            s_selected_index = 0;
-            s_scroll_y = 0.0f;
-
-            size_t new_items = (s_view_mode == UI_VIEW_GAME_PROGRESS && s_game_progress_loaded)
-                ? s_game_progress.achievement_count
-                : (s_user_summary_loaded ? s_user_summary.recent_games_count : 0);
-            clamp_scroll_and_selection(new_items);
+            if (s_app_state == APP_STATE_GAME_DETAIL)
+            {
+                if (s_game_progress_loaded)
+                {
+                    trigger_fetch_game_progress(s_game_progress.game_id);
+                }
+            }
+            else
+            {
+                trigger_fetch_user_summary();
+            }
         }
 
-        // Reload config from SD (Y)
         if (kDown & KEY_Y)
         {
             s_config_status = config_load(&s_config);
             if (s_config.is_configured)
             {
                 snprintf(s_status_msg, sizeof(s_status_msg), "Config reloaded for user: %s", s_config.username);
+                if (s_app_state == APP_STATE_ERROR)
+                {
+                    s_app_state = APP_STATE_USER_SUMMARY;
+                }
+                trigger_fetch_user_summary();
             }
             else
             {
+                s_prev_state = s_app_state;
+                s_app_state = APP_STATE_ERROR;
                 snprintf(s_status_msg, sizeof(s_status_msg), "Credentials unconfigured in config.ini");
             }
         }
 
-        // Action / Sync (A)
-        if (kDown & KEY_A)
-        {
-            if (s_view_mode == UI_VIEW_SUMMARY)
-            {
-                // If on recent games list and user presses A on a selected game: load its progress!
-                if (s_user_summary_loaded && s_user_summary.recent_games_count > 0 &&
-                    s_selected_index < (int)s_user_summary.recent_games_count)
-                {
-                    uint32_t chosen_game = s_user_summary.recent_games[s_selected_index].game_id;
-                    s_ui_state = UI_STATE_BUSY_FETCHING;
-
-                    if (s_game_progress_loaded)
-                    {
-                        ra_game_progress_free(&s_game_progress);
-                        s_game_progress_loaded = false;
-                    }
-
-                    char err_buf[128] = {0};
-                    ra_result_t res = ra_api_get_game_progress(&s_config, chosen_game, &s_game_progress, err_buf, sizeof(err_buf));
-                    if (res == RA_OK)
-                    {
-                        s_game_progress_loaded = true;
-                        s_view_mode = UI_VIEW_GAME_PROGRESS;
-                        s_selected_index = 0;
-                        s_scroll_y = 0.0f;
-                        s_ui_state = UI_STATE_IDLE;
-                        snprintf(s_status_msg, sizeof(s_status_msg), "Loaded: %s", s_game_progress.title);
-                    }
-                    else
-                    {
-                        s_ui_state = UI_STATE_ERROR;
-                        snprintf(s_status_msg, sizeof(s_status_msg), "Failed to load game: %s", err_buf);
-                    }
-                }
-                else
-                {
-                    // Fetch user summary
-                    s_ui_state = UI_STATE_BUSY_FETCHING;
-                    char err_buf[128] = {0};
-                    ra_result_t res = ra_api_get_user_summary(&s_config, NULL, &s_user_summary, err_buf, sizeof(err_buf));
-                    if (res == RA_OK)
-                    {
-                        s_user_summary_loaded = true;
-                        s_ui_state = UI_STATE_IDLE;
-                        s_selected_index = 0;
-                        s_scroll_y = 0.0f;
-                        snprintf(s_status_msg, sizeof(s_status_msg), "Profile updated for %s", s_user_summary.username);
-                    }
-                    else
-                    {
-                        s_ui_state = UI_STATE_ERROR;
-                        snprintf(s_status_msg, sizeof(s_status_msg), "Profile sync error: %s", err_buf);
-                    }
-                }
-            }
-            else // UI_VIEW_GAME_PROGRESS
-            {
-                uint32_t target_game = s_game_progress_loaded ? s_game_progress.game_id :
-                    ((s_user_summary_loaded && s_user_summary.recent_games_count > 0) ? s_user_summary.recent_games[0].game_id : 2);
-
-                s_ui_state = UI_STATE_BUSY_FETCHING;
-                if (s_game_progress_loaded)
-                {
-                    ra_game_progress_free(&s_game_progress);
-                    s_game_progress_loaded = false;
-                }
-
-                char err_buf[128] = {0};
-                ra_result_t res = ra_api_get_game_progress(&s_config, target_game, &s_game_progress, err_buf, sizeof(err_buf));
-                if (res == RA_OK)
-                {
-                    s_game_progress_loaded = true;
-                    s_ui_state = UI_STATE_IDLE;
-                    s_selected_index = 0;
-                    s_scroll_y = 0.0f;
-                    snprintf(s_status_msg, sizeof(s_status_msg), "Loaded %zu achievements", s_game_progress.achievement_count);
-                }
-                else
-                {
-                    s_ui_state = UI_STATE_ERROR;
-                    snprintf(s_status_msg, sizeof(s_status_msg), "Game sync error: %s", err_buf);
-                }
-            }
-        }
-
-        // Citro3D Dual-Screen Frame Rendering Pass
+        // 6. Citro3D Dual-Screen Frame Rendering Pass (Fixed 60 FPS VSync)
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
         ui_frame_begin();
 
         ui_render_top_screen(
-            s_view_mode,
-            s_ui_state,
+            s_app_state,
+            s_is_loading,
             &s_config,
             &s_user_summary,
             s_user_summary_loaded,
             &s_game_progress,
             s_game_progress_loaded,
             s_selected_index,
-            s_status_msg
+            s_status_msg,
+            s_frame_counter
         );
 
         ui_render_bottom_screen(
-            s_view_mode,
-            s_ui_state,
+            s_app_state,
+            s_is_loading,
             &s_config,
             &s_user_summary,
             s_user_summary_loaded,
@@ -385,7 +673,8 @@ int main(int argc, char* argv[])
             s_game_progress_loaded,
             s_scroll_y,
             s_selected_index,
-            s_status_msg
+            s_status_msg,
+            s_frame_counter
         );
 
         C3D_FrameEnd(0);

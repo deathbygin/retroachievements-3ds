@@ -38,13 +38,14 @@
 #define UI_CLR_PROGRESS_BG   C2D_Color32(0x18, 0x18, 0x1E, 0xFF)
 
 /**
- * @brief View State Modes
+ * @brief Top-Level Application State Machine
  */
 typedef enum {
-    UI_VIEW_UNCONFIGURED = 0,
-    UI_VIEW_SUMMARY,
-    UI_VIEW_GAME_PROGRESS
-} ui_view_mode_t;
+    APP_STATE_INIT = 0,
+    APP_STATE_USER_SUMMARY,
+    APP_STATE_GAME_DETAIL,
+    APP_STATE_ERROR
+} app_state_t;
 
 /**
  * @brief Operational UI states
@@ -85,23 +86,24 @@ void ui_draw_text_wrapped(float x, float y, float scale, float max_width, u32 co
  * @brief Draw Top Screen layout (Profile, stats, selected item detail card).
  */
 void ui_render_top_screen(
-    ui_view_mode_t view_mode,
-    ui_state_t state,
+    app_state_t state,
+    bool is_loading,
     const app_config_t* cfg,
     const ra_user_summary_t* summary,
     bool summary_loaded,
     const ra_game_progress_t* progress,
     bool progress_loaded,
     int selected_index,
-    const char* status_message
+    const char* status_message,
+    uint32_t frame_count
 );
 
 /**
- * @brief Draw Bottom Screen layout (Scrollable list view with item culling).
+ * @brief Draw Bottom Screen layout (Scrollable list view with item culling and touch targets).
  */
 void ui_render_bottom_screen(
-    ui_view_mode_t view_mode,
-    ui_state_t state,
+    app_state_t state,
+    bool is_loading,
     const app_config_t* cfg,
     const ra_user_summary_t* summary,
     bool summary_loaded,
@@ -109,7 +111,8 @@ void ui_render_bottom_screen(
     bool progress_loaded,
     float scroll_y,
     int selected_index,
-    const char* status_message
+    const char* status_message,
+    uint32_t frame_count
 );
 
 /**
