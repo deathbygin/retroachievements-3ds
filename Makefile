@@ -24,7 +24,7 @@ ROMFS           := romfs
 
 APP_TITLE       := RetroAchievements 3DS
 APP_DESCRIPTION := RetroAchievements client for Nintendo 3DS
-APP_AUTHOR      := Homebrew Community
+APP_AUTHOR      := deathbygin
 APP_VERSION     := 0.1.0
 
 #---------------------------------------------------------------------------------
