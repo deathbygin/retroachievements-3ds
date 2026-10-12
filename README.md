@@ -16,10 +16,9 @@ DISCLAIMER: This application is vibe-coded; use at your own risk and do not dist
 
 ## Features
 
-- **Dual-Screen Cyberpunk Interface:**
-  - **Top Screen (400x240):** Displays user profile stats (rank, hardcore/softcore points, avatar, motto) and selected achievement details with live badge art.
-  - **Bottom Screen (320x240):** Interactive, touch-enabled scrollable lists for recent games, achievement sets, search results, and settings action cards.
-  - Optimized glassmorphic surface rendering with specular highlights, pulsating neon accents, and 60 FPS performance bounds.
+- **Dual-Screen Interface:**
+  - **Top Screen:** Displays user profile stats (rank, hardcore/softcore points, avatar, motto) and selected achievement details with live badge art.
+  - **Bottom Screen:** Interactive, touch-enabled scrollable lists for recent games, achievement sets, search results, and settings action cards.
 - **Game Progress & Achievements Browser:**
   - View full achievement sets for any played or searched game.
   - Distinct hardcore (green) vs. softcore (cyan) unlock status indicators, point values, descriptions, and unlock timestamps.
@@ -28,11 +27,9 @@ DISCLAIMER: This application is vibe-coded; use at your own risk and do not dist
 - **On-Screen Software Keyboard:**
   - In-app credential setup using the native Nintendo 3DS Swkbd applet — no manual text file editing required.
 - **Hardware DSP UI Sound Effects:**
-  - Programmatic audio synthesis via the Nintendo 3DS `ndsp` hardware audio subsystem.
   - Tactile audio cues for list navigation, item selection, back navigation, toggle actions, success, and errors.
   - Persistent sound toggle in the Settings menu.
 - **Asset Caching & Network Optimization:**
-  - Linear RAM texture cache with 8x8 PICA200 Morton swizzling.
   - Background asynchronous image downloader and API worker thread.
   - Persistent on-device SD card caching (`sdmc:/3ds/retroachievements/cache/`) with in-app cache clearing.
 - **Bare-Metal 3DS Ready:**
