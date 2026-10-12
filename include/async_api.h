@@ -7,6 +7,7 @@
 
 #include "config.h"
 #include "retro_api.h"
+#include "ui.h"
 
 #include <3ds.h>
 #include <stdbool.h>
@@ -23,7 +24,8 @@ typedef enum {
 typedef enum {
     ASYNC_REQ_NONE = 0,
     ASYNC_REQ_USER_SUMMARY,
-    ASYNC_REQ_GAME_PROGRESS
+    ASYNC_REQ_GAME_PROGRESS,
+    ASYNC_REQ_SEARCH
 } async_req_type_t;
 
 /**
@@ -53,6 +55,14 @@ bool async_api_request_user_summary(const app_config_t* cfg);
 bool async_api_request_game_progress(const app_config_t* cfg, uint32_t game_id);
 
 /**
+ * @brief Request an asynchronous global search across all RetroAchievements games.
+ * @param cfg Application configuration containing credentials.
+ * @param query Search query string (game title keywords or game ID).
+ * @return True if enqueued, false if worker is busy or uninitialized.
+ */
+bool async_api_request_search(const app_config_t* cfg, const char* query);
+
+/**
  * @brief Invalidate and cancel any in-flight background request.
  * Outdated network responses will be safely discarded without modifying state.
  */
@@ -65,12 +75,19 @@ void async_api_cancel(void);
 bool async_api_is_busy(void);
 
 /**
+ * @brief Get the latest real-time status message from background operations (e.g. search progress).
+ */
+void async_api_get_progress_status(char* out_buf, size_t out_size);
+
+/**
  * @brief Poll the async worker for completed results.
  * When a result is ready (SUCCESS or ERROR), this consumes the result and resets to IDLE.
  *
  * @param out_type Pointer to receive completed request type (optional).
  * @param out_summary Pointer to receive completed user summary (optional).
- * @param out_progress Pointer to receive completed game progress (transfers ownership of dynamically allocated achievements).
+ * @param out_progress Pointer to receive completed game progress (transfers ownership).
+ * @param out_search_results Pointer to array of search results (optional).
+ * @param out_search_count Pointer to receive number of search results (optional).
  * @param err_buf Buffer to receive error message on ASYNC_STATUS_ERROR.
  * @param err_size Size of err_buf in bytes.
  * @return ASYNC_STATUS_BUSY, ASYNC_STATUS_SUCCESS, ASYNC_STATUS_ERROR, or ASYNC_STATUS_IDLE.
@@ -79,6 +96,9 @@ async_api_status_t async_api_poll(
     async_req_type_t* out_type,
     ra_user_summary_t* out_summary,
     ra_game_progress_t* out_progress,
+    search_result_item_t* out_search_results,
+    size_t* out_search_count,
     char* err_buf,
     size_t err_size
 );
+

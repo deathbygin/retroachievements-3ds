@@ -125,6 +125,36 @@ static void draw_signal_bars(float x, float y, u8 strength)
     }
 }
 
+void ui_draw_search_icon(float x, float y, u32 color)
+{
+    // x, y is center of icon
+    float lens_x = x - 2.0f;
+    float lens_y = y - 2.0f;
+    C2D_DrawCircleSolid(lens_x, lens_y, 0.3f, 4.8f, color);
+    C2D_DrawCircleSolid(lens_x, lens_y, 0.35f, 2.6f, UI_CLR_CARD);
+
+    // Diagonal handle
+    C2D_DrawLine(x + 1.2f, y + 1.2f, color, x + 5.8f, y + 5.8f, color, 2.2f, 0.4f);
+}
+
+void ui_draw_reload_icon(float x, float y, u32 color)
+{
+    // x, y is center of icon
+    C2D_DrawCircleSolid(x, y, 0.3f, 5.0f, color);
+    C2D_DrawCircleSolid(x, y, 0.35f, 2.8f, UI_CLR_CARD);
+
+    // Cutout top-left notch
+    C2D_DrawRectSolid(x - 5.5f, y - 5.5f, 0.36f, 5.5f, 4.5f, UI_CLR_CARD);
+
+    // Triangle arrow head pointing clockwise
+    C2D_DrawTriangle(
+        x - 1.0f, y - 6.5f, color,
+        x + 3.5f, y - 4.0f, color,
+        x - 1.0f, y - 1.5f, color,
+        0.4f
+    );
+}
+
 void ui_render_top_screen(
     app_state_t state,
     bool is_loading,
@@ -135,6 +165,9 @@ void ui_render_top_screen(
     bool progress_loaded,
     int selected_index,
     const char* status_message,
+    const char* search_query,
+    const search_result_item_t* search_results,
+    size_t search_results_count,
     uint32_t frame_count
 )
 {
@@ -291,6 +324,51 @@ void ui_render_top_screen(
             ui_draw_text(22, 192, 0.40f, UI_CLR_GOLD, comp_line);
         }
     }
+    else if (state == APP_STATE_SEARCH)
+    {
+        C2D_DrawRectSolid(10, 120, 0.2f, 4, 112, UI_CLR_BLUE);
+
+        if (search_results != NULL && search_results_count > 0 &&
+            selected_index >= 0 && selected_index < (int)search_results_count)
+        {
+            const search_result_item_t* item = &search_results[selected_index];
+            C2D_Image game_icon = game_get_icon(item->image_icon);
+            C2D_DrawRectSolid(329.0f, 125.0f, 0.25f, 48.0f, 48.0f, UI_CLR_BORDER);
+            C2D_DrawImageAt(game_icon, 331.0f, 127.0f, 0.3f, NULL, 44.0f / (float)BADGE_TEX_SIZE, 44.0f / (float)BADGE_TEX_SIZE);
+
+            ui_draw_text_wrapped(22, 126, 0.50f, 300.0f, UI_CLR_TEXT_WHITE, item->title);
+
+            char console_line[96];
+            snprintf(console_line, sizeof(console_line), "Platform: %s  (GameID: %lu)",
+                     item->console_name, (unsigned long)item->game_id);
+            ui_draw_text(22, 148, 0.40f, UI_CLR_BLUE, console_line);
+
+            char match_line[80];
+            snprintf(match_line, sizeof(match_line), "Search Query: \"%.30s\"", (search_query && search_query[0]) ? search_query : "*");
+            ui_draw_text(22, 168, 0.38f, UI_CLR_TEXT_DIM, match_line);
+
+            ui_draw_text(22, 196, 0.40f, UI_CLR_GOLD, "Press [A] or tap to inspect game achievements.");
+        }
+        else
+        {
+            ui_draw_text(24, 126, 0.52f, UI_CLR_BLUE, "GLOBAL GAME SEARCH");
+
+            char query_disp[96];
+            snprintf(query_disp, sizeof(query_disp), "Active Query: \"%.40s\"", (search_query && search_query[0]) ? search_query : "<None>");
+            ui_draw_text(24, 150, 0.42f, UI_CLR_TEXT_WHITE, query_disp);
+
+            if (is_loading)
+            {
+                ui_draw_text(24, 172, 0.38f, UI_CLR_GOLD, "Searching RetroAchievements database...");
+            }
+            else
+            {
+                ui_draw_text(24, 172, 0.38f, UI_CLR_TEXT_DIM, "Tap Search icon or press [Y] to enter Game ID / title.");
+            }
+
+            ui_draw_text(24, 196, 0.38f, UI_CLR_GOLD, "Press [B] or tap [< Back] to return to Profile Overview.");
+        }
+    }
     else if (state == APP_STATE_USER_SUMMARY)
     {
         C2D_DrawRectSolid(10, 120, 0.2f, 4, 112, UI_CLR_BLUE);
@@ -346,6 +424,9 @@ void ui_render_bottom_screen(
     float scroll_y,
     int selected_index,
     const char* status_message,
+    const char* search_query,
+    const search_result_item_t* search_results,
+    size_t search_results_count,
     uint32_t frame_count
 )
 {
@@ -367,32 +448,46 @@ void ui_render_bottom_screen(
     }
     else if (state == APP_STATE_GAME_DETAIL)
     {
-        // Virtual Back Button on Left: x in [4, 68], y in [2, 23]
-        C2D_DrawRectSolid(4, 3, 0.2f, 64, 20, UI_CLR_CARD);
-        C2D_DrawRectSolid(4, 3, 0.25f, 64, 20, UI_CLR_BORDER);
+        // Virtual Back Button on Left: x in [4, 68], y in [2, 24]
+        C2D_DrawRectSolid(4, 2, 0.2f, 64, 22, UI_CLR_CARD);
+        C2D_DrawRectSolid(4, 2, 0.25f, 64, 22, UI_CLR_BORDER);
         ui_draw_text(10, 5, 0.40f, UI_CLR_GOLD, "< Back");
 
         char ach_hdr[64];
         snprintf(ach_hdr, sizeof(ach_hdr), "ACHIEVEMENTS (%zu)",
                  (progress_loaded && progress) ? progress->achievement_count : 0);
-        ui_draw_text(76, 6, 0.42f, UI_CLR_TEXT_WHITE, ach_hdr);
+        ui_draw_text(74, 6, 0.40f, UI_CLR_TEXT_WHITE, ach_hdr);
+    }
+    else if (state == APP_STATE_SEARCH)
+    {
+        // Virtual Back Button on Left: x in [4, 68], y in [2, 24]
+        C2D_DrawRectSolid(4, 2, 0.2f, 64, 22, UI_CLR_CARD);
+        C2D_DrawRectSolid(4, 2, 0.25f, 64, 22, UI_CLR_BORDER);
+        ui_draw_text(10, 5, 0.40f, UI_CLR_GOLD, "< Back");
 
-        // Virtual Sync Button on Right: x in [252, 316], y in [2, 23]
-        C2D_DrawRectSolid(252, 3, 0.2f, 64, 20, UI_CLR_CARD);
-        C2D_DrawRectSolid(252, 3, 0.25f, 64, 20, UI_CLR_BORDER);
-        ui_draw_text(264, 5, 0.38f, UI_CLR_BLUE, "Sync");
+        char search_hdr[64];
+        snprintf(search_hdr, sizeof(search_hdr), "SEARCH (%zu)", search_results_count);
+        ui_draw_text(74, 6, 0.40f, UI_CLR_TEXT_WHITE, search_hdr);
     }
     else // APP_STATE_USER_SUMMARY or APP_STATE_INIT
     {
         char games_hdr[64];
         snprintf(games_hdr, sizeof(games_hdr), "RECENT GAMES (%zu)",
                  (summary_loaded && summary) ? summary->recent_games_count : 0);
-        ui_draw_text(8, 6, 0.45f, UI_CLR_GOLD, games_hdr);
+        ui_draw_text(8, 6, 0.42f, UI_CLR_GOLD, games_hdr);
+    }
 
-        // Virtual Sync Button on Right: x in [252, 316], y in [2, 23]
-        C2D_DrawRectSolid(252, 3, 0.2f, 64, 20, UI_CLR_CARD);
-        C2D_DrawRectSolid(252, 3, 0.25f, 64, 20, UI_CLR_BORDER);
-        ui_draw_text(264, 5, 0.38f, UI_CLR_BLUE, "Sync");
+    if (state != APP_STATE_ERROR)
+    {
+        // Search Icon Button: x in [248, 280], y in [2, 24]
+        C2D_DrawRectSolid(248, 2, 0.2f, 32, 22, UI_CLR_CARD);
+        C2D_DrawRectSolid(248, 2, 0.25f, 32, 22, (state == APP_STATE_SEARCH) ? UI_CLR_GOLD : UI_CLR_BORDER);
+        ui_draw_search_icon(264.0f, 13.0f, (state == APP_STATE_SEARCH) ? UI_CLR_GOLD : UI_CLR_BLUE);
+
+        // Reload / Sync Icon Button: x in [284, 316], y in [2, 24]
+        C2D_DrawRectSolid(284, 2, 0.2f, 32, 22, UI_CLR_CARD);
+        C2D_DrawRectSolid(284, 2, 0.25f, 32, 22, is_loading ? UI_CLR_GOLD : UI_CLR_BORDER);
+        ui_draw_reload_icon(300.0f, 13.0f, is_loading ? UI_CLR_GOLD : UI_CLR_BLUE);
     }
 
     if (state == APP_STATE_ERROR)
@@ -427,6 +522,10 @@ void ui_render_bottom_screen(
         if (state == APP_STATE_GAME_DETAIL && progress_loaded && progress)
         {
             total_items = progress->achievement_count;
+        }
+        else if (state == APP_STATE_SEARCH)
+        {
+            total_items = search_results_count;
         }
         else if (summary_loaded && summary)
         {
@@ -481,6 +580,19 @@ void ui_render_bottom_screen(
                         ui_draw_text(250, item_y + 12.0f, 0.38f, UI_CLR_RED, "LOCKED");
                     }
                 }
+                else if (state == APP_STATE_SEARCH && search_results)
+                {
+                    const search_result_item_t* item = &search_results[i];
+                    C2D_Image icon_img = game_get_icon(item->image_icon);
+                    C2D_DrawImageAt(icon_img, 14.0f, item_y + 4.0f, 0.3f, NULL, 32.0f / (float)BADGE_TEX_SIZE, 32.0f / (float)BADGE_TEX_SIZE);
+
+                    ui_draw_text(52, item_y + 6.0f, 0.44f, UI_CLR_TEXT_WHITE, item->title);
+                    ui_draw_text(52, item_y + 22.0f, 0.38f, UI_CLR_BLUE, item->console_name);
+
+                    char id_tag[24];
+                    snprintf(id_tag, sizeof(id_tag), "ID: %lu", (unsigned long)item->game_id);
+                    ui_draw_text(240, item_y + 12.0f, 0.36f, UI_CLR_GOLD, id_tag);
+                }
                 else if (summary)
                 {
                     const ra_recent_game_t* g = &summary->recent_games[i];
@@ -525,6 +637,19 @@ void ui_render_bottom_screen(
                 C2D_DrawCircleSolid(cx + cosf(angle) * r, cy + sinf(angle) * r, 0.5f, 5.0f, UI_CLR_GOLD);
                 ui_draw_text(85, 126, 0.46f, UI_CLR_BLUE, "Loading items from API...");
             }
+            else if (state == APP_STATE_SEARCH)
+            {
+                if (search_query && search_query[0])
+                {
+                    ui_draw_text(45, 90, 0.46f, UI_CLR_TEXT_DIM, "No matching games found.");
+                    ui_draw_text(30, 115, 0.40f, UI_CLR_GOLD, "Tap [Search] or press [Y] to try another query.");
+                }
+                else
+                {
+                    ui_draw_text(50, 90, 0.46f, UI_CLR_TEXT_DIM, "Enter a Game ID or Title to search.");
+                    ui_draw_text(30, 115, 0.40f, UI_CLR_GOLD, "Tap [Search] or press [Y] to open keyboard.");
+                }
+            }
             else
             {
                 ui_draw_text(60, 90, 0.46f, UI_CLR_TEXT_DIM, "No items available to display.");
@@ -545,9 +670,13 @@ void ui_render_bottom_screen(
     {
         ui_draw_text(8, 222, 0.35f, UI_CLR_TEXT_DIM, "[D-Pad] Scroll  [A] Inspect  [B] Back  [X] Sync  [START] Exit");
     }
+    else if (state == APP_STATE_SEARCH)
+    {
+        ui_draw_text(8, 222, 0.35f, UI_CLR_TEXT_DIM, "[D-Pad] Scroll  [A] Select Game  [B] Back  [Y] Search  [START] Exit");
+    }
     else if (state == APP_STATE_USER_SUMMARY)
     {
-        ui_draw_text(8, 222, 0.35f, UI_CLR_TEXT_DIM, "[D-Pad] Scroll  [A] Select Game  [X] Sync  [START] Exit");
+        ui_draw_text(8, 222, 0.35f, UI_CLR_TEXT_DIM, "[D-Pad] Scroll  [A] Select Game  [X] Sync  [Y] Search  [START] Exit");
     }
     else
     {

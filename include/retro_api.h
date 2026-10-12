@@ -146,6 +146,26 @@ ra_result_t ra_api_get_game_progress(
 );
 
 /**
+ * @brief Fetch raw JSON list of games for a specific console from RetroAchievements.
+ *
+ * @param cfg Validated application configuration containing credentials.
+ * @param console_id Target console ID (e.g. 3 for SNES, 7 for NES).
+ * @param[out] out_json Allocated buffer containing JSON response (caller must free()).
+ * @param[out] out_size Size of downloaded buffer.
+ * @param[out] out_err_msg Optional buffer for detailed error diagnostics (or NULL).
+ * @param err_msg_len Size of out_err_msg buffer.
+ * @return RA_OK on success, or structured error code.
+ */
+ra_result_t ra_api_get_console_games_json(
+    const app_config_t* cfg,
+    uint32_t console_id,
+    char** out_json,
+    size_t* out_size,
+    char* out_err_msg,
+    size_t err_msg_len
+);
+
+/**
  * @brief Convert ra_result_t to a human-readable diagnostic string.
  */
 const char* ra_result_to_string(ra_result_t result);

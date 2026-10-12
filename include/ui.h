@@ -37,6 +37,15 @@
 #define UI_CLR_BORDER        C2D_Color32(0x44, 0x47, 0x5A, 0xFF)
 #define UI_CLR_PROGRESS_BG   C2D_Color32(0x18, 0x18, 0x1E, 0xFF)
 
+#define MAX_SEARCH_RESULTS  32
+
+typedef struct {
+    uint32_t game_id;
+    char     title[128];
+    char     console_name[64];
+    char     image_icon[64];
+} search_result_item_t;
+
 /**
  * @brief Top-Level Application State Machine
  */
@@ -44,6 +53,7 @@ typedef enum {
     APP_STATE_INIT = 0,
     APP_STATE_USER_SUMMARY,
     APP_STATE_GAME_DETAIL,
+    APP_STATE_SEARCH,
     APP_STATE_ERROR
 } app_state_t;
 
@@ -83,6 +93,16 @@ void ui_draw_text(float x, float y, float scale, u32 color, const char* text);
 void ui_draw_text_wrapped(float x, float y, float scale, float max_width, u32 color, const char* text);
 
 /**
+ * @brief Render 2D vector magnifying glass icon using primitives.
+ */
+void ui_draw_search_icon(float x, float y, u32 color);
+
+/**
+ * @brief Render 2D vector circular reload/sync icon using primitives.
+ */
+void ui_draw_reload_icon(float x, float y, u32 color);
+
+/**
  * @brief Draw Top Screen layout (Profile, stats, selected item detail card).
  */
 void ui_render_top_screen(
@@ -95,6 +115,9 @@ void ui_render_top_screen(
     bool progress_loaded,
     int selected_index,
     const char* status_message,
+    const char* search_query,
+    const search_result_item_t* search_results,
+    size_t search_results_count,
     uint32_t frame_count
 );
 
@@ -112,6 +135,9 @@ void ui_render_bottom_screen(
     float scroll_y,
     int selected_index,
     const char* status_message,
+    const char* search_query,
+    const search_result_item_t* search_results,
+    size_t search_results_count,
     uint32_t frame_count
 );
 

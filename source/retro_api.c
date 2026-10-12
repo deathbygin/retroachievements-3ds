@@ -490,3 +490,81 @@ ra_result_t ra_api_get_game_progress(
     return RA_OK;
 }
 
+ra_result_t ra_api_get_console_games_json(
+    const app_config_t* cfg,
+    uint32_t console_id,
+    char** out_json,
+    size_t* out_size,
+    char* out_err_msg,
+    size_t err_msg_len
+)
+{
+    if (out_json == NULL || out_size == NULL)
+    {
+        return RA_ERR_INVALID_PARAM;
+    }
+    *out_json = NULL;
+    *out_size = 0;
+
+    if (cfg == NULL || !cfg->is_configured)
+    {
+        if (out_err_msg != NULL && err_msg_len > 0)
+        {
+            snprintf(out_err_msg, err_msg_len, "Configuration uninitialized or missing credentials");
+        }
+        return RA_ERR_NOT_CONFIGURED;
+    }
+
+    char* enc_auth_user = curl_easy_escape(NULL, cfg->username, 0);
+    char* enc_api_key   = curl_easy_escape(NULL, cfg->web_api_key, 0);
+
+    char url[URL_BUF_SIZE];
+    snprintf(url, sizeof(url),
+             "%sAPI_GetGameList.php?z=%s&y=%s&i=%lu&f=1",
+             RA_API_BASE_URL,
+             enc_auth_user ? enc_auth_user : cfg->username,
+             enc_api_key ? enc_api_key : cfg->web_api_key,
+             (unsigned long)console_id);
+
+    if (enc_auth_user) curl_free(enc_auth_user);
+    if (enc_api_key) curl_free(enc_api_key);
+
+    const char* ca_path = cfg->ssl_verify_peer ? "romfs:/certs/cacert.pem" : NULL;
+
+    http_response_t resp;
+    net_result_t net_rc = http_get(url, ca_path, 2 * 1024 * 1024, 8L, 18L, &resp);
+
+    if (net_rc == NET_ERR_TLS_FAILED && ca_path != NULL)
+    {
+        http_response_free(&resp);
+        net_rc = http_get(url, NULL, 2 * 1024 * 1024, 8L, 18L, &resp);
+    }
+
+    if (net_rc != NET_OK)
+    {
+        if (out_err_msg != NULL && err_msg_len > 0)
+        {
+            snprintf(out_err_msg, err_msg_len, "Network error: %s", resp.error_desc);
+        }
+        http_response_free(&resp);
+        return (net_rc == NET_ERR_NO_WIFI) ? RA_ERR_NETWORK : RA_ERR_HTTP;
+    }
+
+    if (resp.http_status != 200)
+    {
+        if (out_err_msg != NULL && err_msg_len > 0)
+        {
+            snprintf(out_err_msg, err_msg_len, "HTTP %ld returned from RetroAchievements", resp.http_status);
+        }
+        http_response_free(&resp);
+        return RA_ERR_HTTP;
+    }
+
+    *out_json = resp.body;
+    *out_size = resp.body_size;
+    resp.body = NULL; // Take ownership
+    http_response_free(&resp);
+
+    return RA_OK;
+}
+
