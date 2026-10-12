@@ -1,0 +1,18 @@
+# Build outputs
+build/
+*.elf
+*.o
+*.d
+*.3dsx
+*.smdh
+*.cia
+
+# Temporary / OS files
+.DS_Store
+Thumbs.db
+*.tmp
+*.log
+
+# Sensitive credentials & local cache
+config.ini
+cache/
