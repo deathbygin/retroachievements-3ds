@@ -84,9 +84,3 @@ preferred_screen = 0
 | **Y** | Open Global Search / Open API Key keyboard in setup / Reload config on error |
 | **START** | Clean exit to HOME Menu or Homebrew Launcher |
 | **Touch Screen** | Tap cards, buttons, or drag to scroll lists directly |
-
----
-
-## License
-
-This project is licensed under the MIT License.
