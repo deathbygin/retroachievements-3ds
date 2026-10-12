@@ -5,7 +5,9 @@
 
 #include "config.h"
 
+#include <3ds.h>
 #include <ctype.h>
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -130,7 +132,10 @@ bool config_validate_username(const char* username)
         return false;
     }
 
-    if (strcmp(username, "your_username_here") == 0)
+    if (strcasecmp(username, "your_username_here") == 0 ||
+        strcasecmp(username, "YOUR_USERNAME") == 0 ||
+        strcasecmp(username, "YOUR_USERNAME_HERE") == 0 ||
+        strcasecmp(username, "username") == 0)
     {
         return false;
     }
@@ -155,13 +160,16 @@ bool config_validate_api_key(const char* api_key)
     }
 
     size_t len = strlen(api_key);
-    // RetroAchievements Web API keys are 32 hex/alphanumeric characters
-    if (len < 16 || len >= CONFIG_API_KEY_MAX_LEN)
+    if (len == 0 || len >= CONFIG_API_KEY_MAX_LEN)
     {
         return false;
     }
 
-    if (strcmp(api_key, "your_web_api_key_here") == 0)
+    if (strcasecmp(api_key, "your_web_api_key_here") == 0 ||
+        strcasecmp(api_key, "YOUR_WEB_API_KEY") == 0 ||
+        strcasecmp(api_key, "YOUR_WEB_API_KEY_HERE") == 0 ||
+        strcasecmp(api_key, "YOUR_API_KEY") == 0 ||
+        strcasecmp(api_key, "web_api_key") == 0)
     {
         return false;
     }
@@ -169,13 +177,41 @@ bool config_validate_api_key(const char* api_key)
     for (size_t i = 0; i < len; i++)
     {
         char c = api_key[i];
-        if (!isalnum((unsigned char)c))
+        if (isspace((unsigned char)c) || !isprint((unsigned char)c))
         {
             return false;
         }
     }
 
     return true;
+}
+
+bool config_needs_setup(const app_config_t* cfg)
+{
+    if (cfg == NULL)
+    {
+        return true;
+    }
+
+    // 1. config.ini does not exist on SD card
+    if (access(CONFIG_FILE_PATH, F_OK) != 0)
+    {
+        return true;
+    }
+
+    // 2. username is empty or matches placeholder text or invalid characters
+    if (!config_validate_username(cfg->username))
+    {
+        return true;
+    }
+
+    // 3. web_api_key is empty or invalid in format/length (not 32 hex chars, or placeholder)
+    if (!config_validate_api_key(cfg->web_api_key))
+    {
+        return true;
+    }
+
+    return false;
 }
 
 void config_secure_wipe(app_config_t* config)
@@ -188,39 +224,6 @@ void config_secure_wipe(app_config_t* config)
     secure_memzero(config->username, sizeof(config->username));
     secure_memzero(config->web_api_key, sizeof(config->web_api_key));
     config->is_configured = false;
-}
-
-/**
- * @brief Write default template configuration to file with user documentation.
- */
-static config_status_t write_template_file(const char* path)
-{
-    FILE* fp = fopen(path, "w");
-    if (fp == NULL)
-    {
-        return CONFIG_ERR_FILE_WRITE_FAILED;
-    }
-
-    fputs("# =========================================================\n", fp);
-    fputs("# RetroAchievements 3DS Configuration\n", fp);
-    fputs("# =========================================================\n", fp);
-    fputs("# To obtain your Web API Key:\n", fp);
-    fputs("# 1. Log in to https://retroachievements.org\n", fp);
-    fputs("# 2. Navigate to your Settings page\n", fp);
-    fputs("# 3. Click 'Keys' on the left navigation\n", fp);
-    fputs("# 4. Copy your 'Web API Key' below (NOT your password!)\n\n", fp);
-    fputs("[Credentials]\n", fp);
-    fputs("username = your_username_here\n", fp);
-    fputs("web_api_key = your_web_api_key_here\n\n", fp);
-    fputs("[Settings]\n", fp);
-    fputs("sound_enabled = 1\n", fp);
-    fputs("cache_limit_mb = 100\n", fp);
-    fputs("ssl_verify_peer = 1\n", fp);
-
-    fflush(fp);
-    fclose(fp);
-
-    return CONFIG_OK;
 }
 
 config_status_t config_load(app_config_t* config)
@@ -244,14 +247,12 @@ config_status_t config_load(app_config_t* config)
         return init_rc;
     }
 
-    // Check if configuration file exists
+    // Clean up any stale temporary config files from interrupted writes
+    remove("sdmc:/3ds/retroachievements/config.ini.tmp");
+
+    // Check if configuration file exists on SD card
     if (access(CONFIG_FILE_PATH, F_OK) != 0)
     {
-        config_status_t tmpl_rc = write_template_file(CONFIG_FILE_PATH);
-        if (tmpl_rc != CONFIG_OK)
-        {
-            return tmpl_rc;
-        }
         return CONFIG_CREATED_TEMPLATE;
     }
 
@@ -366,5 +367,153 @@ config_status_t config_save(const app_config_t* config)
     }
 
     return CONFIG_OK;
+}
+
+static uint64_t calculate_dir_bytes_recursive(const char* dir_path, int depth)
+{
+    if (dir_path == NULL || depth > 5)
+    {
+        return 0; // Prevent runaway recursion
+    }
+
+    DIR* d = opendir(dir_path);
+    if (d == NULL)
+    {
+        return 0;
+    }
+
+    uint64_t total = 0;
+    struct dirent* ent;
+    while ((ent = readdir(d)) != NULL)
+    {
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+        {
+            continue;
+        }
+
+        char path[512];
+        snprintf(path, sizeof(path), "%s/%s", dir_path, ent->d_name);
+
+        struct stat st;
+        if (stat(path, &st) == 0)
+        {
+            if (S_ISDIR(st.st_mode))
+            {
+                total += calculate_dir_bytes_recursive(path, depth + 1);
+            }
+            else if (S_ISREG(st.st_mode))
+            {
+                total += (uint64_t)st.st_size;
+            }
+        }
+    }
+    closedir(d);
+    return total;
+}
+
+static Thread s_calc_thread = NULL;
+static volatile bool s_calc_running = false;
+static float s_cached_mb = -1.0f;
+
+static void cache_calc_worker(void* arg)
+{
+    (void)arg;
+    uint64_t bytes = calculate_dir_bytes_recursive(CONFIG_CACHE_DIR_PATH, 0);
+    s_cached_mb = (float)bytes / (1024.0f * 1024.0f);
+    s_calc_running = false;
+}
+
+void config_refresh_cache_size_async(void)
+{
+    if (s_calc_running)
+    {
+        return;
+    }
+    s_calc_running = true;
+    s_calc_thread = threadCreate(cache_calc_worker, NULL, 16 * 1024, 0x32, -2, true);
+    if (s_calc_thread == NULL)
+    {
+        s_calc_running = false;
+    }
+}
+
+float config_get_cache_size_mb(void)
+{
+    return s_cached_mb;
+}
+
+void config_set_cache_size_mb(float mb)
+{
+    s_cached_mb = mb;
+}
+
+static void wipe_dir_contents_recursive(const char* dir_path, bool delete_self, int depth)
+{
+    if (dir_path == NULL || depth > 5)
+    {
+        return;
+    }
+
+    // Strict sandboxing check: path MUST be within CONFIG_CACHE_DIR_PATH
+    const char* prefix = CONFIG_CACHE_DIR_PATH;
+    if (strncmp(dir_path, prefix, strlen(prefix)) != 0)
+    {
+        return; // Prevent directory traversal escaping the cache sandbox
+    }
+
+    DIR* d = opendir(dir_path);
+    if (d == NULL)
+    {
+        return;
+    }
+
+    struct dirent* ent;
+    while ((ent = readdir(d)) != NULL)
+    {
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+        {
+            continue;
+        }
+
+        char path[512];
+        snprintf(path, sizeof(path), "%s/%s", dir_path, ent->d_name);
+
+        struct stat st;
+        if (stat(path, &st) == 0)
+        {
+            if (S_ISDIR(st.st_mode))
+            {
+                wipe_dir_contents_recursive(path, true, depth + 1);
+            }
+            else
+            {
+                remove(path);
+            }
+        }
+    }
+    closedir(d);
+
+    if (delete_self)
+    {
+        rmdir(dir_path);
+    }
+}
+
+bool config_clear_cache(void)
+{
+    // Wipe all files and subdirectories inside cache
+    wipe_dir_contents_recursive(CONFIG_CACHE_DIR_PATH, false, 0);
+
+    // Recreate standard empty subdirectories so subsequent downloads succeed
+    mkdir(CONFIG_CACHE_DIR_PATH, 0777);
+    mkdir("sdmc:/3ds/retroachievements/cache/badges", 0777);
+    mkdir("sdmc:/3ds/retroachievements/cache/games", 0777);
+    mkdir("sdmc:/3ds/retroachievements/cache/users", 0777);
+    mkdir("sdmc:/3ds/retroachievements/cache/gamelists", 0777);
+
+    // Immediately reflect 0 MB usage
+    s_cached_mb = 0.0f;
+
+    return true;
 }
 

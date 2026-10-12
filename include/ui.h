@@ -51,11 +51,26 @@ typedef struct {
  */
 typedef enum {
     APP_STATE_INIT = 0,
+    APP_STATE_SETUP_CREDENTIALS,
     APP_STATE_USER_SUMMARY,
     APP_STATE_GAME_DETAIL,
     APP_STATE_SEARCH,
+    APP_STATE_SETTINGS,
     APP_STATE_ERROR
 } app_state_t;
+
+#define STATE_SETUP_CREDENTIALS APP_STATE_SETUP_CREDENTIALS
+#define STATE_USER_SUMMARY      APP_STATE_USER_SUMMARY
+#define STATE_SETTINGS          APP_STATE_SETTINGS
+
+/**
+ * @brief Settings Maintenance Confirmation Modal types
+ */
+typedef enum {
+    SETTINGS_MODAL_NONE = 0,
+    SETTINGS_MODAL_RESET_USER_DATA,
+    SETTINGS_MODAL_CLEAR_CACHE
+} settings_modal_t;
 
 /**
  * @brief Operational UI states
@@ -88,6 +103,11 @@ void ui_frame_begin(void);
 void ui_draw_text(float x, float y, float scale, u32 color, const char* text);
 
 /**
+ * @brief Render formatted text with explicit z-depth.
+ */
+void ui_draw_text_depth(float x, float y, float depth, float scale, u32 color, const char* text);
+
+/**
  * @brief Render multiline wrapped text within a specified width boundary.
  */
 void ui_draw_text_wrapped(float x, float y, float scale, float max_width, u32 color, const char* text);
@@ -103,7 +123,17 @@ void ui_draw_search_icon(float x, float y, u32 color);
 void ui_draw_reload_icon(float x, float y, u32 color);
 
 /**
- * @brief Draw Top Screen layout (Profile, stats, selected item detail card).
+ * @brief Render 2D vector gear/cog settings icon using primitives.
+ */
+void ui_draw_settings_icon(float x, float y, u32 color);
+
+/**
+ * @brief Render 2D vector back/return arrow icon using primitives.
+ */
+void ui_draw_back_icon(float x, float y, u32 color);
+
+/**
+ * @brief Draw Top Screen layout (Profile, stats, selected item detail card, setup, settings).
  */
 void ui_render_top_screen(
     app_state_t state,
@@ -118,11 +148,14 @@ void ui_render_top_screen(
     const char* search_query,
     const search_result_item_t* search_results,
     size_t search_results_count,
+    const char* draft_username,
+    const char* draft_api_key,
+    float cache_size_mb,
     uint32_t frame_count
 );
 
 /**
- * @brief Draw Bottom Screen layout (Scrollable list view with item culling and touch targets).
+ * @brief Draw Bottom Screen layout (Scrollable list view, item culling, touch targets, setup buttons, settings).
  */
 void ui_render_bottom_screen(
     app_state_t state,
@@ -138,6 +171,9 @@ void ui_render_bottom_screen(
     const char* search_query,
     const search_result_item_t* search_results,
     size_t search_results_count,
+    const char* draft_username,
+    const char* draft_api_key,
+    settings_modal_t settings_modal,
     uint32_t frame_count
 );
 

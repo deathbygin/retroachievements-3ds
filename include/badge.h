@@ -60,3 +60,8 @@ C2D_Image user_get_avatar(const char* user_pic, const char* username);
  * @brief Get fallback placeholder texture.
  */
 C2D_Image badge_get_placeholder(void);
+
+/**
+ * @brief Evict all textures from linear RAM and reset the download queue.
+ */
+void badge_cache_clear_memory(void);

@@ -9,7 +9,7 @@ DISCLAIMER: This application is vibe-coded; use at your own risk and do not dist
 ## Features
 
 - **Dual-Screen Layout:**
-  - **Top Screen (400x240):** Displays user profile stats (rank, hardcore/softcore points, avatar, rich presence activity) and selected achievement details with live badge art.
+  - **Top Screen (400x240):** Displays user profile stats (rank, hardcore/softcore points, avatar, motto) and selected achievement details with live badge art.
   - **Bottom Screen (320x240):** Interactive, scrollable lists for recent games and achievement sets with off-screen culling.
 - **HTTPS & TLS Connectivity:**
   - Built-in multi-root CA bundle supporting Modern Google Trust Services / GlobalSign ECC certificates used by RetroAchievements.

@@ -43,6 +43,15 @@ typedef struct {
     bool     is_configured;     // True if valid non-empty credentials are set
 } app_config_t;
 
+typedef app_config_t Config;
+
+/**
+ * @brief Check if configuration is missing, blank, or contains default placeholder credentials.
+ * @param cfg Configuration struct to validate.
+ * @return True if configuration requires first-run or interactive setup, false if valid.
+ */
+bool config_needs_setup(const app_config_t* cfg);
+
 /**
  * @brief Initialize configuration subsystem and ensure SD directories exist.
  * @return CONFIG_OK or error code.
@@ -50,7 +59,7 @@ typedef struct {
 config_status_t config_init(void);
 
 /**
- * @brief Load configuration from SD card. If missing, auto-creates template file.
+ * @brief Load configuration from SD card. If missing, initializes default unconfigured settings.
  * @param[out] config Destination configuration struct.
  * @return CONFIG_OK, CONFIG_CREATED_TEMPLATE, or error code.
  */
@@ -82,4 +91,26 @@ bool config_validate_api_key(const char* api_key);
  * @param config Configuration struct to zero.
  */
 void config_secure_wipe(app_config_t* config);
+
+/**
+ * @brief Get total storage space used by the cache directory in megabytes.
+ * @return Total megabytes used on SD card, or negative value if calculating / not ready.
+ */
+float config_get_cache_size_mb(void);
+
+/**
+ * @brief Kick off an asynchronous background calculation of the cache storage usage.
+ */
+void config_refresh_cache_size_async(void);
+
+/**
+ * @brief Set the cached storage size value directly (e.g. 0.0f after cache clear).
+ */
+void config_set_cache_size_mb(float mb);
+
+/**
+ * @brief Recursively wipe all cached assets and recreate empty cache directories.
+ * @return True on success, false on failure.
+ */
+bool config_clear_cache(void);
 

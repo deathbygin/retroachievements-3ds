@@ -353,6 +353,28 @@ void badge_subsystem_cleanup(void)
     }
 }
 
+void badge_cache_clear_memory(void)
+{
+    // 1. Drain pending download task queue
+    LightLock_Lock(&s_queue_lock);
+    s_queue_head = 0;
+    s_queue_tail = 0;
+    s_queue_count = 0;
+    LightLock_Unlock(&s_queue_lock);
+
+    // 2. Free all linear memory textures in the LRU cache
+    for (int i = 0; i < BADGE_CACHE_CAPACITY; i++)
+    {
+        if (s_cache[i].is_valid)
+        {
+            C3D_TexDelete(&s_cache[i].tex);
+            s_cache[i].is_valid = false;
+            s_cache[i].key[0] = '\0';
+            s_cache[i].last_used_tick = 0;
+        }
+    }
+}
+
 C2D_Image badge_get_placeholder(void)
 {
     return s_placeholder_image;

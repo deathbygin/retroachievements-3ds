@@ -63,6 +63,7 @@ typedef struct {
     uint32_t         total_ranked;
     char             user_pic[RA_URL_MAX_LEN];
     char             rich_presence[RA_DESC_MAX_LEN];
+    char             motto[RA_DESC_MAX_LEN];
     char             member_since[RA_DATE_MAX_LEN];
     size_t           recent_games_count;
     ra_recent_game_t recent_games[RA_MAX_RECENT_GAMES];

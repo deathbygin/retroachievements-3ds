@@ -200,6 +200,15 @@ ra_result_t ra_api_get_user_summary(
         return (net_rc == NET_ERR_NO_WIFI) ? RA_ERR_NETWORK : RA_ERR_HTTP;
     }
 
+    if (resp.http_status == 401 || resp.http_status == 403)
+    {
+        if (out_err_msg != NULL && err_msg_len > 0)
+        {
+            snprintf(out_err_msg, err_msg_len, "Invalid Username or API Key (HTTP %ld)", resp.http_status);
+        }
+        http_response_free(&resp);
+        return RA_ERR_AUTH_FAILED;
+    }
     if (resp.http_status == 429)
     {
         if (out_err_msg != NULL && err_msg_len > 0)
@@ -257,6 +266,11 @@ ra_result_t ra_api_get_user_summary(
     out_summary->total_ranked          = json_get_uint32(root, "TotalRanked", 0);
     json_get_string(root, "UserPic", out_summary->user_pic, sizeof(out_summary->user_pic), "");
     json_get_string(root, "RichPresenceMsg", out_summary->rich_presence, sizeof(out_summary->rich_presence), "");
+    json_get_string(root, "Motto", out_summary->motto, sizeof(out_summary->motto), "");
+    if (out_summary->motto[0] == '\0')
+    {
+        json_get_string(root, "motto", out_summary->motto, sizeof(out_summary->motto), "");
+    }
     json_get_string(root, "MemberSince", out_summary->member_since, sizeof(out_summary->member_since), "");
     json_get_string(root, "Status", out_summary->status_msg, sizeof(out_summary->status_msg), "Success");
 

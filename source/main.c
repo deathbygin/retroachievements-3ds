@@ -44,6 +44,14 @@ static char                 s_search_query[64]               = {0};
 static search_result_item_t s_search_results[MAX_SEARCH_RESULTS];
 static size_t               s_search_results_count           = 0;
 
+// Draft Credential Setup State
+static char                 s_draft_username[CONFIG_USERNAME_MAX_LEN] = {0};
+static char                 s_draft_api_key[CONFIG_API_KEY_MAX_LEN]   = {0};
+
+// Settings & Cache Management State
+static settings_modal_t     s_settings_modal                 = SETTINGS_MODAL_NONE;
+static float                s_cache_size_mb                  = 0.0f;
+
 // Application State Machine
 static app_state_t         s_app_state            = APP_STATE_INIT;
 static app_state_t         s_prev_state           = APP_STATE_USER_SUMMARY;
@@ -243,13 +251,305 @@ static void launch_search_keyboard(void)
     }
 }
 
+static void launch_username_keyboard(void)
+{
+    if (s_is_loading)
+    {
+        return;
+    }
+
+    static SwkbdState s_swkbd_user;
+    swkbdInit(&s_swkbd_user, SWKBD_TYPE_NORMAL, 2, 32);
+    swkbdSetHintText(&s_swkbd_user, "Enter RA Username");
+    if (s_draft_username[0] != '\0')
+    {
+        swkbdSetInitialText(&s_swkbd_user, s_draft_username);
+    }
+    swkbdSetValidation(&s_swkbd_user, SWKBD_NOTEMPTY_NOTBLANK, 0, 0);
+
+    char input_buf[64] = {0};
+    SwkbdButton button = swkbdInputText(&s_swkbd_user, input_buf, sizeof(input_buf));
+
+    // Clear residual touch flags so applet dismiss tap does not trigger UI buttons
+    s_touch_active = false;
+    s_touch_dragged = false;
+
+    if (button != SWKBD_BUTTON_NONE && button != SWKBD_BUTTON_LEFT)
+    {
+        char* start = input_buf;
+        while (*start && isspace((unsigned char)*start))
+        {
+            start++;
+        }
+        char* end = start + strlen(start);
+        while (end > start && isspace((unsigned char)*(end - 1)))
+        {
+            end--;
+        }
+        *end = '\0';
+
+        if (strlen(start) > 0)
+        {
+            strncpy(s_draft_username, start, sizeof(s_draft_username) - 1);
+            s_draft_username[sizeof(s_draft_username) - 1] = '\0';
+        }
+    }
+}
+
+static void launch_api_key_keyboard(void)
+{
+    if (s_is_loading)
+    {
+        return;
+    }
+
+    static SwkbdState s_swkbd_key;
+    swkbdInit(&s_swkbd_key, SWKBD_TYPE_NORMAL, 2, 64);
+    swkbdSetHintText(&s_swkbd_key, "Enter Web API Key");
+    if (s_draft_api_key[0] != '\0')
+    {
+        swkbdSetInitialText(&s_swkbd_key, s_draft_api_key);
+    }
+    swkbdSetValidation(&s_swkbd_key, SWKBD_NOTEMPTY_NOTBLANK, 0, 0);
+
+    char input_buf[96] = {0};
+    SwkbdButton button = swkbdInputText(&s_swkbd_key, input_buf, sizeof(input_buf));
+
+    // Clear residual touch flags so applet dismiss tap does not trigger UI buttons
+    s_touch_active = false;
+    s_touch_dragged = false;
+
+    if (button != SWKBD_BUTTON_NONE && button != SWKBD_BUTTON_LEFT)
+    {
+        char* start = input_buf;
+        while (*start && isspace((unsigned char)*start))
+        {
+            start++;
+        }
+        char* end = start + strlen(start);
+        while (end > start && isspace((unsigned char)*(end - 1)))
+        {
+            end--;
+        }
+        *end = '\0';
+
+        if (strlen(start) > 0)
+        {
+            strncpy(s_draft_api_key, start, sizeof(s_draft_api_key) - 1);
+            s_draft_api_key[sizeof(s_draft_api_key) - 1] = '\0';
+        }
+    }
+}
+
+static void trigger_save_and_connect(void)
+{
+    if (s_is_loading)
+    {
+        return;
+    }
+
+    if (!config_validate_username(s_draft_username) || !config_validate_api_key(s_draft_api_key))
+    {
+        snprintf(s_status_msg, sizeof(s_status_msg), "Please enter both username and Web API key.");
+        return;
+    }
+
+    // Copy draft credentials into active configuration struct
+    strncpy(s_config.username, s_draft_username, sizeof(s_config.username) - 1);
+    s_config.username[sizeof(s_config.username) - 1] = '\0';
+    strncpy(s_config.web_api_key, s_draft_api_key, sizeof(s_config.web_api_key) - 1);
+    s_config.web_api_key[sizeof(s_config.web_api_key) - 1] = '\0';
+    s_config.is_configured = true;
+
+    // Atomically write validated credentials to SD card with fflush/fclose
+    config_status_t save_rc = config_save(&s_config);
+    if (save_rc != CONFIG_OK)
+    {
+        snprintf(s_status_msg, sizeof(s_status_msg), "Failed to save config.ini to SD (err: %d)", save_rc);
+        return;
+    }
+
+    // Verify Wi-Fi network connectivity before network request
+    u8 wifi_strength = 0;
+    if (!network_get_status(&wifi_strength) || wifi_strength == 0)
+    {
+        snprintf(s_status_msg, sizeof(s_status_msg), "Saved to SD! Wi-Fi disconnected: connect Wi-Fi & retry.");
+        return;
+    }
+
+    // Trigger live credential verification call (Phase 4 API_GetUserSummary.php)
+    s_is_loading = true;
+    snprintf(s_status_msg, sizeof(s_status_msg), "Connecting to RetroAchievements to verify credentials...");
+    async_api_request_user_summary(&s_config);
+}
+
+static void execute_reset_user_data(void)
+{
+    // Suspend any background network activity immediately
+    if (s_is_loading)
+    {
+        async_api_cancel();
+        s_is_loading = false;
+    }
+
+    // 1. Delete config.ini from SD card
+    remove("sdmc:/3ds/retroachievements/config.ini");
+
+    // 2. Clear in-memory credential structs
+    memset(&s_config, 0, sizeof(s_config));
+    s_config.is_configured = false;
+    memset(s_draft_username, 0, sizeof(s_draft_username));
+    memset(s_draft_api_key, 0, sizeof(s_draft_api_key));
+
+    // 3. Clear active profile and game models
+    memset(&s_user_summary, 0, sizeof(s_user_summary));
+    s_user_summary_loaded = false;
+    if (s_game_progress_loaded)
+    {
+        ra_game_progress_free(&s_game_progress);
+        s_game_progress_loaded = false;
+    }
+    s_search_results_count = 0;
+    s_search_query[0] = '\0';
+    s_selected_index = 0;
+    s_scroll_y = 0.0f;
+
+    // 4. Safely re-initialize state flow back to STATE_SETUP_CREDENTIALS
+    s_settings_modal = SETTINGS_MODAL_NONE;
+    s_app_state = APP_STATE_SETUP_CREDENTIALS;
+    snprintf(s_status_msg, sizeof(s_status_msg), "Credentials reset. Please enter username and API key.");
+}
+
+static void execute_clear_cache(void)
+{
+    // Suspend any background syncing / badge downloading
+    if (s_is_loading)
+    {
+        async_api_cancel();
+        s_is_loading = false;
+    }
+
+    // 1. Evict in-memory texture badges and linear memory allocations
+    badge_cache_clear_memory();
+
+    // 2. Recursively clear filesystem cache files under sdmc:/3ds/retroachievements/cache/
+    //    and recreate empty subdirectories (badges, games, users, gamelists)
+    config_clear_cache();
+
+    // 3. Dynamically update storage usage display
+    s_cache_size_mb = 0.0f;
+
+    // 4. Close confirmation modal
+    s_settings_modal = SETTINGS_MODAL_NONE;
+    snprintf(s_status_msg, sizeof(s_status_msg), "Cache cleared successfully (0.00 MB).");
+}
+
 static void handle_touch_tap(u16 px, u16 py)
 {
+    // Intercept all touches while confirmation modal is active
+    if (s_settings_modal != SETTINGS_MODAL_NONE)
+    {
+        // Modal Confirm Button: x in [24, 154], y in [154, 194]
+        if (px >= 24 && px <= 154 && py >= 154 && py <= 194)
+        {
+            if (s_settings_modal == SETTINGS_MODAL_RESET_USER_DATA)
+            {
+                execute_reset_user_data();
+            }
+            else if (s_settings_modal == SETTINGS_MODAL_CLEAR_CACHE)
+            {
+                execute_clear_cache();
+            }
+            return;
+        }
+
+        // Modal Cancel Button: x in [166, 296], y in [154, 194]
+        if (px >= 166 && px <= 296 && py >= 154 && py <= 194)
+        {
+            s_settings_modal = SETTINGS_MODAL_NONE;
+            return;
+        }
+
+        // Touches outside the buttons are swallowed while modal is displayed
+        return;
+    }
+
+    // Credential Setup Screen Hitboxes
+    if (s_app_state == APP_STATE_SETUP_CREDENTIALS)
+    {
+        // Field 1: [ Set Username ] (y: 32..74, x: 16..304)
+        if (py >= 32 && py <= 74 && px >= 16 && px <= 304)
+        {
+            launch_username_keyboard();
+            return;
+        }
+
+        // Field 2: [ Set Web API Key ] (y: 80..122, x: 16..304)
+        if (py >= 80 && py <= 122 && px >= 16 && px <= 304)
+        {
+            launch_api_key_keyboard();
+            return;
+        }
+
+        // Action Button: [ Save & Connect ] (y: 150..206, x: 16..304)
+        if (py >= 150 && py <= 206 && px >= 16 && px <= 304)
+        {
+            if (config_validate_username(s_draft_username) && config_validate_api_key(s_draft_api_key))
+            {
+                trigger_save_and_connect();
+            }
+            return;
+        }
+
+        return;
+    }
+
+    // Settings Screen Hitboxes
+    if (s_app_state == APP_STATE_SETTINGS)
+    {
+        // Virtual Back Button Icon on Left: x in [0, 48], y <= 26
+        if (px <= 48 && py <= 26)
+        {
+            s_app_state = s_prev_state;
+            return;
+        }
+
+        // Settings Icon Toggle: x in [212, 244], y <= 26
+        if (px >= 212 && px <= 244 && py <= 26)
+        {
+            s_app_state = s_prev_state;
+            return;
+        }
+
+        // Action 1: [ Reset User Data ] (y: 36..86, x: 16..304)
+        if (py >= 36 && py <= 86 && px >= 16 && px <= 304)
+        {
+            s_settings_modal = SETTINGS_MODAL_RESET_USER_DATA;
+            return;
+        }
+
+        // Action 2: [ Clear Cache ] (y: 94..144, x: 16..304)
+        if (py >= 94 && py <= 144 && px >= 16 && px <= 304)
+        {
+            s_settings_modal = SETTINGS_MODAL_CLEAR_CACHE;
+            return;
+        }
+
+        // Action 3: [ Back ] (y: 152..202, x: 16..304)
+        if (py >= 152 && py <= 202 && px >= 16 && px <= 304)
+        {
+            s_app_state = s_prev_state;
+            return;
+        }
+
+        return;
+    }
+
     // Global Header Bar Hitboxes (y: 0..26)
     if (py <= 26 && s_app_state != APP_STATE_ERROR)
     {
-        // 1. Back button on left: x in [0, 72] (for GAME_DETAIL or SEARCH)
-        if (px <= 72 && (s_app_state == APP_STATE_GAME_DETAIL || s_app_state == APP_STATE_SEARCH))
+        // 1. Back button icon on left: x in [0, 48] (for GAME_DETAIL or SEARCH)
+        if (px <= 48 && (s_app_state == APP_STATE_GAME_DETAIL || s_app_state == APP_STATE_SEARCH))
         {
             if (s_is_loading)
             {
@@ -262,7 +562,18 @@ static void handle_touch_tap(u16 px, u16 py)
             return;
         }
 
-        // 2. Search Icon button: x in [248, 280]
+        // 2. Settings Icon button: x in [212, 244]
+        if (px >= 212 && px <= 244)
+        {
+            s_prev_state = s_app_state;
+            s_app_state = APP_STATE_SETTINGS;
+            config_refresh_cache_size_async();
+            return;
+        }
+
+        // Note: Dead zone gap at x in [245, 247] prevents accidental dual-triggering
+
+        // 3. Search Icon button: x in [248, 280]
         if (px >= 248 && px <= 280)
         {
             launch_search_keyboard();
@@ -271,7 +582,7 @@ static void handle_touch_tap(u16 px, u16 py)
 
         // Note: Dead zone gap at x in [281, 283] prevents accidental dual-triggering
 
-        // 3. Reload / Sync Icon button: x in [284, 316]
+        // 4. Reload / Sync Icon button: x in [284, 316]
         if (px >= 284 && px <= 316)
         {
             if (s_app_state == APP_STATE_GAME_DETAIL && s_game_progress_loaded)
@@ -311,15 +622,16 @@ static void handle_touch_tap(u16 px, u16 py)
         else if (py >= 148 && py <= 192 && px >= 16 && px <= 304)
         {
             s_config_status = config_load(&s_config);
-            if (s_config.is_configured)
+            if (config_needs_setup(&s_config))
+            {
+                s_app_state = APP_STATE_SETUP_CREDENTIALS;
+                snprintf(s_status_msg, sizeof(s_status_msg), "Please configure RetroAchievements credentials.");
+            }
+            else
             {
                 snprintf(s_status_msg, sizeof(s_status_msg), "Config reloaded for user: %s", s_config.username);
                 s_app_state = APP_STATE_USER_SUMMARY;
                 trigger_fetch_user_summary();
-            }
-            else
-            {
-                snprintf(s_status_msg, sizeof(s_status_msg), "Credentials still unconfigured in config.ini");
             }
         }
         return;
@@ -429,15 +741,21 @@ static void init_subsystems(void)
 
     // 8. Application configuration & SDMC storage
     s_config_status = config_load(&s_config);
-    if (s_config_status == CONFIG_CREATED_TEMPLATE)
+    if (config_needs_setup(&s_config))
     {
-        s_app_state = APP_STATE_ERROR;
-        snprintf(s_status_msg, sizeof(s_status_msg), "Template config created at sdmc:/3ds/retroachievements/config.ini");
-    }
-    else if (!s_config.is_configured)
-    {
-        s_app_state = APP_STATE_ERROR;
-        snprintf(s_status_msg, sizeof(s_status_msg), "Credentials unconfigured. Edit config.ini.");
+        s_app_state = APP_STATE_SETUP_CREDENTIALS;
+        s_config.is_configured = false;
+        if (config_validate_username(s_config.username))
+        {
+            strncpy(s_draft_username, s_config.username, sizeof(s_draft_username) - 1);
+            s_draft_username[sizeof(s_draft_username) - 1] = '\0';
+        }
+        if (config_validate_api_key(s_config.web_api_key))
+        {
+            strncpy(s_draft_api_key, s_config.web_api_key, sizeof(s_draft_api_key) - 1);
+            s_draft_api_key[sizeof(s_draft_api_key) - 1] = '\0';
+        }
+        snprintf(s_status_msg, sizeof(s_status_msg), "Please configure RetroAchievements credentials.");
     }
     else
     {
@@ -465,6 +783,8 @@ static void cleanup_subsystems(void)
 
     // 2. Securely wipe sensitive in-memory credentials
     config_secure_wipe(&s_config);
+    memset(s_draft_username, 0, sizeof(s_draft_username));
+    memset(s_draft_api_key, 0, sizeof(s_draft_api_key));
 
     // 3. Badge Subsystem (Stop worker thread and free linear memory textures)
     if (s_badge_initialized)
@@ -565,13 +885,31 @@ int main(int argc, char* argv[])
         else if (async_res == ASYNC_STATUS_ERROR)
         {
             s_is_loading = false;
-            if (s_app_state != APP_STATE_SEARCH)
+            if (s_app_state == APP_STATE_SETUP_CREDENTIALS)
             {
-                s_prev_state = s_app_state;
-                s_app_state = APP_STATE_ERROR;
+                // Auth failure during setup: remain in STATE_SETUP_CREDENTIALS and display warning
+                if (strstr(err_temp, "credential") || strstr(err_temp, "Key") ||
+                    strstr(err_temp, "key") || strstr(err_temp, "auth") ||
+                    strstr(err_temp, "Auth") || strstr(err_temp, "401") ||
+                    strstr(err_temp, "Invalid") || strstr(err_temp, "invalid"))
+                {
+                    snprintf(s_status_msg, sizeof(s_status_msg), "Invalid Username or API Key. Please re-enter.");
+                }
+                else
+                {
+                    snprintf(s_status_msg, sizeof(s_status_msg), "Verification failed: %s", err_temp);
+                }
             }
-            strncpy(s_status_msg, err_temp, sizeof(s_status_msg) - 1);
-            s_status_msg[sizeof(s_status_msg) - 1] = '\0';
+            else
+            {
+                if (s_app_state != APP_STATE_SEARCH)
+                {
+                    s_prev_state = s_app_state;
+                    s_app_state = APP_STATE_ERROR;
+                }
+                strncpy(s_status_msg, err_temp, sizeof(s_status_msg) - 1);
+                s_status_msg[sizeof(s_status_msg) - 1] = '\0';
+            }
         }
         else if (s_is_loading && s_app_state == APP_STATE_SEARCH)
         {
@@ -619,7 +957,7 @@ int main(int argc, char* argv[])
         }
         if (kHeld & KEY_TOUCH)
         {
-            if (s_touch_active)
+            if (s_touch_active && s_settings_modal == SETTINGS_MODAL_NONE && s_app_state != APP_STATE_SETTINGS)
             {
                 touchPosition cur;
                 hidTouchRead(&cur);
@@ -645,161 +983,223 @@ int main(int argc, char* argv[])
         }
 
         // 4. Gamepad Navigation (D-Pad & Circle Pad with hold acceleration)
-        if (kDown & (KEY_DUP | KEY_CPAD_UP))
+        if (s_settings_modal == SETTINGS_MODAL_NONE && s_app_state != APP_STATE_SETTINGS && s_app_state != APP_STATE_SETUP_CREDENTIALS)
         {
-            if (s_selected_index > 0)
-            {
-                s_selected_index--;
-                clamp_scroll_and_selection(current_items);
-            }
-            s_key_repeat_timer = 0;
-        }
-        else if (kDown & (KEY_DDOWN | KEY_CPAD_DOWN))
-        {
-            if (s_selected_index < (int)current_items - 1)
-            {
-                s_selected_index++;
-                clamp_scroll_and_selection(current_items);
-            }
-            s_key_repeat_timer = 0;
-        }
-        else if (kHeld & (KEY_DUP | KEY_CPAD_UP))
-        {
-            s_key_repeat_timer++;
-            if (s_key_repeat_timer > 14 && (s_key_repeat_timer % 4 == 0))
+            if (kDown & (KEY_DUP | KEY_CPAD_UP))
             {
                 if (s_selected_index > 0)
                 {
                     s_selected_index--;
                     clamp_scroll_and_selection(current_items);
                 }
+                s_key_repeat_timer = 0;
             }
-        }
-        else if (kHeld & (KEY_DDOWN | KEY_CPAD_DOWN))
-        {
-            s_key_repeat_timer++;
-            if (s_key_repeat_timer > 14 && (s_key_repeat_timer % 4 == 0))
+            else if (kDown & (KEY_DDOWN | KEY_CPAD_DOWN))
             {
                 if (s_selected_index < (int)current_items - 1)
                 {
                     s_selected_index++;
                     clamp_scroll_and_selection(current_items);
                 }
+                s_key_repeat_timer = 0;
+            }
+            else if (kHeld & (KEY_DUP | KEY_CPAD_UP))
+            {
+                s_key_repeat_timer++;
+                if (s_key_repeat_timer > 14 && (s_key_repeat_timer % 4 == 0))
+                {
+                    if (s_selected_index > 0)
+                    {
+                        s_selected_index--;
+                        clamp_scroll_and_selection(current_items);
+                    }
+                }
+            }
+            else if (kHeld & (KEY_DDOWN | KEY_CPAD_DOWN))
+            {
+                s_key_repeat_timer++;
+                if (s_key_repeat_timer > 14 && (s_key_repeat_timer % 4 == 0))
+                {
+                    if (s_selected_index < (int)current_items - 1)
+                    {
+                        s_selected_index++;
+                        clamp_scroll_and_selection(current_items);
+                    }
+                }
+            }
+            else
+            {
+                s_key_repeat_timer = 0;
+            }
+        }
+
+        // 5. Gamepad Action Mappings
+        if (s_settings_modal != SETTINGS_MODAL_NONE)
+        {
+            if (kDown & KEY_A)
+            {
+                if (s_settings_modal == SETTINGS_MODAL_RESET_USER_DATA)
+                {
+                    execute_reset_user_data();
+                }
+                else if (s_settings_modal == SETTINGS_MODAL_CLEAR_CACHE)
+                {
+                    execute_clear_cache();
+                }
+            }
+            else if (kDown & (KEY_B | KEY_SELECT))
+            {
+                s_settings_modal = SETTINGS_MODAL_NONE;
             }
         }
         else
         {
-            s_key_repeat_timer = 0;
-        }
-
-        // 5. Gamepad Action Mappings
-        if (kDown & KEY_A)
-        {
-            if (s_app_state == APP_STATE_ERROR)
+            if (kDown & KEY_SELECT)
             {
-                if (s_prev_state == APP_STATE_GAME_DETAIL && s_game_progress_loaded)
+                if (s_app_state == APP_STATE_SETTINGS)
                 {
-                    trigger_fetch_game_progress(s_game_progress.game_id);
+                    s_app_state = s_prev_state;
                 }
-                else
-                {
-                    trigger_fetch_user_summary();
-                }
-            }
-            else if (s_app_state == APP_STATE_SEARCH)
-            {
-                if (s_search_results_count > 0 && s_selected_index < (int)s_search_results_count)
-                {
-                    uint32_t chosen_game = s_search_results[s_selected_index].game_id;
-                    trigger_fetch_game_progress(chosen_game);
-                }
-            }
-            else if (s_app_state == APP_STATE_USER_SUMMARY)
-            {
-                if (s_user_summary_loaded && s_user_summary.recent_games_count > 0 &&
-                    s_selected_index < (int)s_user_summary.recent_games_count)
-                {
-                    uint32_t chosen_game = s_user_summary.recent_games[s_selected_index].game_id;
-                    trigger_fetch_game_progress(chosen_game);
-                }
-                else
-                {
-                    trigger_fetch_user_summary();
-                }
-            }
-        }
-
-        if (kDown & KEY_B)
-        {
-            if (s_app_state == APP_STATE_GAME_DETAIL)
-            {
-                if (s_is_loading)
-                {
-                    async_api_cancel();
-                    s_is_loading = false;
-                }
-                s_app_state = s_prev_state;
-                s_selected_index = 0;
-                s_scroll_y = 0.0f;
-            }
-            else if (s_app_state == APP_STATE_SEARCH)
-            {
-                if (s_is_loading)
-                {
-                    async_api_cancel();
-                    s_is_loading = false;
-                }
-                s_app_state = APP_STATE_USER_SUMMARY;
-                s_selected_index = 0;
-                s_scroll_y = 0.0f;
-            }
-            else if (s_app_state == APP_STATE_ERROR)
-            {
-                s_app_state = APP_STATE_USER_SUMMARY;
-                snprintf(s_status_msg, sizeof(s_status_msg), "Returned to Profile Overview.");
-            }
-        }
-
-        if (kDown & KEY_X)
-        {
-            if (s_app_state == APP_STATE_GAME_DETAIL)
-            {
-                if (s_game_progress_loaded)
-                {
-                    trigger_fetch_game_progress(s_game_progress.game_id);
-                }
-            }
-            else
-            {
-                trigger_fetch_user_summary();
-            }
-        }
-
-        if (kDown & KEY_Y)
-        {
-            if (s_app_state == APP_STATE_ERROR)
-            {
-                s_config_status = config_load(&s_config);
-                if (s_config.is_configured)
-                {
-                    snprintf(s_status_msg, sizeof(s_status_msg), "Config reloaded for user: %s", s_config.username);
-                    s_app_state = APP_STATE_USER_SUMMARY;
-                    trigger_fetch_user_summary();
-                }
-                else
+                else if (s_app_state != APP_STATE_SETUP_CREDENTIALS)
                 {
                     s_prev_state = s_app_state;
-                    s_app_state = APP_STATE_ERROR;
-                    snprintf(s_status_msg, sizeof(s_status_msg), "Credentials unconfigured in config.ini");
+                    s_app_state = APP_STATE_SETTINGS;
+                    config_refresh_cache_size_async();
                 }
             }
-            else
+
+            if (kDown & KEY_A)
             {
-                launch_search_keyboard();
+                if (s_app_state == APP_STATE_SETUP_CREDENTIALS)
+                {
+                    if (config_validate_username(s_draft_username) && config_validate_api_key(s_draft_api_key))
+                    {
+                        trigger_save_and_connect();
+                    }
+                }
+                else if (s_app_state == APP_STATE_ERROR)
+                {
+                    if (s_prev_state == APP_STATE_GAME_DETAIL && s_game_progress_loaded)
+                    {
+                        trigger_fetch_game_progress(s_game_progress.game_id);
+                    }
+                    else
+                    {
+                        trigger_fetch_user_summary();
+                    }
+                }
+                else if (s_app_state == APP_STATE_SEARCH)
+                {
+                    if (s_search_results_count > 0 && s_selected_index < (int)s_search_results_count)
+                    {
+                        uint32_t chosen_game = s_search_results[s_selected_index].game_id;
+                        trigger_fetch_game_progress(chosen_game);
+                    }
+                }
+                else if (s_app_state == APP_STATE_USER_SUMMARY)
+                {
+                    if (s_user_summary_loaded && s_user_summary.recent_games_count > 0 &&
+                        s_selected_index < (int)s_user_summary.recent_games_count)
+                    {
+                        uint32_t chosen_game = s_user_summary.recent_games[s_selected_index].game_id;
+                        trigger_fetch_game_progress(chosen_game);
+                    }
+                    else
+                    {
+                        trigger_fetch_user_summary();
+                    }
+                }
+            }
+
+            if (kDown & KEY_B)
+            {
+                if (s_app_state == APP_STATE_SETTINGS)
+                {
+                    s_app_state = s_prev_state;
+                }
+                else if (s_app_state == APP_STATE_GAME_DETAIL)
+                {
+                    if (s_is_loading)
+                    {
+                        async_api_cancel();
+                        s_is_loading = false;
+                    }
+                    s_app_state = s_prev_state;
+                    s_selected_index = 0;
+                    s_scroll_y = 0.0f;
+                }
+                else if (s_app_state == APP_STATE_SEARCH)
+                {
+                    if (s_is_loading)
+                    {
+                        async_api_cancel();
+                        s_is_loading = false;
+                    }
+                    s_app_state = APP_STATE_USER_SUMMARY;
+                    s_selected_index = 0;
+                    s_scroll_y = 0.0f;
+                }
+                else if (s_app_state == APP_STATE_ERROR)
+                {
+                    s_app_state = APP_STATE_USER_SUMMARY;
+                    snprintf(s_status_msg, sizeof(s_status_msg), "Returned to Profile Overview.");
+                }
+            }
+
+            if (kDown & KEY_X)
+            {
+                if (s_app_state == APP_STATE_SETUP_CREDENTIALS)
+                {
+                    launch_username_keyboard();
+                }
+                else if (s_app_state == APP_STATE_GAME_DETAIL)
+                {
+                    if (s_game_progress_loaded)
+                    {
+                        trigger_fetch_game_progress(s_game_progress.game_id);
+                    }
+                }
+                else if (s_app_state != APP_STATE_SETTINGS)
+                {
+                    trigger_fetch_user_summary();
+                }
+            }
+
+            if (kDown & KEY_Y)
+            {
+                if (s_app_state == APP_STATE_SETUP_CREDENTIALS)
+                {
+                    launch_api_key_keyboard();
+                }
+                else if (s_app_state == APP_STATE_ERROR)
+                {
+                    s_config_status = config_load(&s_config);
+                    s_cache_size_mb = config_get_cache_size_mb();
+                    if (config_needs_setup(&s_config))
+                    {
+                        s_app_state = APP_STATE_SETUP_CREDENTIALS;
+                        snprintf(s_status_msg, sizeof(s_status_msg), "Please configure RetroAchievements credentials.");
+                    }
+                    else
+                    {
+                        snprintf(s_status_msg, sizeof(s_status_msg), "Config reloaded for user: %s", s_config.username);
+                        s_app_state = APP_STATE_USER_SUMMARY;
+                        trigger_fetch_user_summary();
+                    }
+                }
+                else if (s_app_state != APP_STATE_SETTINGS)
+                {
+                    launch_search_keyboard();
+                }
             }
         }
 
         // 6. Citro3D Dual-Screen Frame Rendering Pass (Fixed 60 FPS VSync)
+        if (s_app_state == APP_STATE_SETTINGS)
+        {
+            s_cache_size_mb = config_get_cache_size_mb();
+        }
+
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
         ui_frame_begin();
 
@@ -816,6 +1216,9 @@ int main(int argc, char* argv[])
             s_search_query,
             s_search_results,
             s_search_results_count,
+            s_draft_username,
+            s_draft_api_key,
+            s_cache_size_mb,
             s_frame_counter
         );
 
@@ -833,6 +1236,9 @@ int main(int argc, char* argv[])
             s_search_query,
             s_search_results,
             s_search_results_count,
+            s_draft_username,
+            s_draft_api_key,
+            s_settings_modal,
             s_frame_counter
         );
 

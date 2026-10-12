@@ -85,7 +85,7 @@ C3D_RenderTarget* ui_get_bottom_target(void)
     return s_bottom_target;
 }
 
-void ui_draw_text(float x, float y, float scale, u32 color, const char* text)
+void ui_draw_text_depth(float x, float y, float depth, float scale, u32 color, const char* text)
 {
     if (text == NULL || text[0] == '\0' || s_text_buf == NULL)
     {
@@ -96,8 +96,13 @@ void ui_draw_text(float x, float y, float scale, u32 color, const char* text)
     if (C2D_TextParse(&c2d_txt, s_text_buf, text) != NULL)
     {
         C2D_TextOptimize(&c2d_txt);
-        C2D_DrawText(&c2d_txt, C2D_WithColor, x, y, 0.5f, scale, scale, color);
+        C2D_DrawText(&c2d_txt, C2D_WithColor, x, y, depth, scale, scale, color);
     }
+}
+
+void ui_draw_text(float x, float y, float scale, u32 color, const char* text)
+{
+    ui_draw_text_depth(x, y, 0.5f, scale, color, text);
 }
 
 void ui_draw_text_wrapped(float x, float y, float scale, float max_width, u32 color, const char* text)
@@ -130,29 +135,60 @@ void ui_draw_search_icon(float x, float y, u32 color)
     // x, y is center of icon
     float lens_x = x - 2.0f;
     float lens_y = y - 2.0f;
-    C2D_DrawCircleSolid(lens_x, lens_y, 0.3f, 4.8f, color);
-    C2D_DrawCircleSolid(lens_x, lens_y, 0.35f, 2.6f, UI_CLR_CARD);
+    C2D_DrawCircleSolid(lens_x, lens_y, 0.65f, 4.8f, color);
+    C2D_DrawCircleSolid(lens_x, lens_y, 0.66f, 2.6f, UI_CLR_CARD);
 
     // Diagonal handle
-    C2D_DrawLine(x + 1.2f, y + 1.2f, color, x + 5.8f, y + 5.8f, color, 2.2f, 0.4f);
+    C2D_DrawLine(x + 1.2f, y + 1.2f, color, x + 5.8f, y + 5.8f, color, 2.2f, 0.67f);
 }
 
 void ui_draw_reload_icon(float x, float y, u32 color)
 {
     // x, y is center of icon
-    C2D_DrawCircleSolid(x, y, 0.3f, 5.0f, color);
-    C2D_DrawCircleSolid(x, y, 0.35f, 2.8f, UI_CLR_CARD);
+    C2D_DrawCircleSolid(x, y, 0.65f, 5.0f, color);
+    C2D_DrawCircleSolid(x, y, 0.66f, 2.8f, UI_CLR_CARD);
 
     // Cutout top-left notch
-    C2D_DrawRectSolid(x - 5.5f, y - 5.5f, 0.36f, 5.5f, 4.5f, UI_CLR_CARD);
+    C2D_DrawRectSolid(x - 5.5f, y - 5.5f, 0.67f, 5.5f, 4.5f, UI_CLR_CARD);
 
     // Triangle arrow head pointing clockwise
     C2D_DrawTriangle(
         x - 1.0f, y - 6.5f, color,
         x + 3.5f, y - 4.0f, color,
         x - 1.0f, y - 1.5f, color,
-        0.4f
+        0.68f
     );
+}
+
+void ui_draw_settings_icon(float x, float y, u32 color)
+{
+    // x, y is center of icon (bounds: 32x22 area centered at 228.0f, 13.0f)
+    // Cross bars for gear teeth
+    C2D_DrawRectSolid(x - 5.5f, y - 1.5f, 0.65f, 11.0f, 3.0f, color);
+    C2D_DrawRectSolid(x - 1.5f, y - 5.5f, 0.65f, 3.0f, 11.0f, color);
+    C2D_DrawLine(x - 3.8f, y - 3.8f, color, x + 3.8f, y + 3.8f, color, 3.0f, 0.65f);
+    C2D_DrawLine(x - 3.8f, y + 3.8f, color, x + 3.8f, y - 3.8f, color, 3.0f, 0.65f);
+
+    // Gear body
+    C2D_DrawCircleSolid(x, y, 0.66f, 4.5f, color);
+
+    // Inner hole cutout
+    C2D_DrawCircleSolid(x, y, 0.67f, 2.0f, UI_CLR_CARD);
+}
+
+void ui_draw_back_icon(float x, float y, u32 color)
+{
+    // x, y is center of icon (bounds: 32x22 area centered at 20.0f, 13.0f)
+    // Left-pointing arrowhead
+    C2D_DrawTriangle(
+        x - 5.5f, y,        color,
+        x - 0.5f, y - 4.5f, color,
+        x - 0.5f, y + 4.5f, color,
+        0.66f
+    );
+
+    // Horizontal stem line connecting to arrowhead
+    C2D_DrawLine(x - 1.5f, y, color, x + 5.0f, y, color, 2.4f, 0.66f);
 }
 
 void ui_render_top_screen(
@@ -168,6 +204,9 @@ void ui_render_top_screen(
     const char* search_query,
     const search_result_item_t* search_results,
     size_t search_results_count,
+    const char* draft_username,
+    const char* draft_api_key,
+    float cache_size_mb,
     uint32_t frame_count
 )
 {
@@ -198,6 +237,163 @@ void ui_render_top_screen(
         C2D_DrawCircleSolid(cx + cosf(angle) * r, cy + sinf(angle) * r, 0.5f, 2.5f, UI_CLR_GOLD);
     }
 
+    if (state == APP_STATE_SETTINGS)
+    {
+        // Card 1: Build & Account Info (y: 36..124, h: 88)
+        C2D_DrawRectSolid(10, 36, 0.1f, 380, 88, UI_CLR_CARD);
+        C2D_DrawRectSolid(10, 36, 0.2f, 4, 88, UI_CLR_GOLD);
+
+        ui_draw_text(22, 42, 0.50f, UI_CLR_GOLD, "APPLICATION SETTINGS & SYSTEM");
+        ui_draw_text(22, 60, 0.38f, UI_CLR_TEXT_WHITE, "Client: RetroAchievements 3DS (Native CTR)");
+
+        char user_info[96];
+        if (cfg && cfg->is_configured && cfg->username[0] != '\0')
+        {
+            snprintf(user_info, sizeof(user_info), "User: %s  [Configured / Active]", cfg->username);
+            ui_draw_text(22, 78, 0.38f, UI_CLR_GREEN, user_info);
+        }
+        else
+        {
+            ui_draw_text(22, 78, 0.38f, UI_CLR_RED, "User: Unconfigured / Not Connected");
+        }
+
+        if (cfg && cfg->is_configured && cfg->web_api_key[0] != '\0')
+        {
+            char masked[33];
+            size_t klen = strlen(cfg->web_api_key);
+            if (klen > 24) klen = 24;
+            for (size_t i = 0; i < klen; i++) masked[i] = '*';
+            masked[klen] = '\0';
+            char key_info[96];
+            snprintf(key_info, sizeof(key_info), "Key:  %s  (%zu chars)", masked, strlen(cfg->web_api_key));
+            ui_draw_text(22, 96, 0.36f, UI_CLR_TEXT_DIM, key_info);
+        }
+        else
+        {
+            ui_draw_text(22, 96, 0.36f, UI_CLR_BORDER, "Key:  <Not Configured>");
+        }
+
+        // Card 2: SD Storage & Cache Info (y: 130..232, h: 102)
+        C2D_DrawRectSolid(10, 130, 0.1f, 380, 102, UI_CLR_CARD);
+        C2D_DrawRectSolid(10, 130, 0.2f, 4, 102, UI_CLR_BLUE);
+
+        ui_draw_text(22, 136, 0.46f, UI_CLR_BLUE, "STORAGE & CACHE USAGE");
+
+        char cache_info[96];
+        if (cache_size_mb < 0.0f)
+        {
+            snprintf(cache_info, sizeof(cache_info), "SD Cache Storage: Calculating...");
+        }
+        else
+        {
+            snprintf(cache_info, sizeof(cache_info), "SD Cache Storage: %.2f MB", cache_size_mb);
+        }
+        ui_draw_text(22, 154, 0.42f, UI_CLR_GOLD, cache_info);
+
+        ui_draw_text(22, 172, 0.36f, UI_CLR_TEXT_DIM, "Cache Path: sdmc:/3ds/retroachievements/cache/");
+        ui_draw_text(22, 188, 0.35f, UI_CLR_TEXT_WHITE, "Badges and cached API responses are stored offline.");
+
+        if (status_message && status_message[0] != '\0')
+        {
+            ui_draw_text(22, 206, 0.36f, UI_CLR_GOLD, status_message);
+        }
+        else
+        {
+            ui_draw_text(22, 206, 0.35f, UI_CLR_TEXT_DIM, "Use touch controls or buttons on the bottom screen.");
+        }
+
+        return;
+    }
+
+    if (state == APP_STATE_SETUP_CREDENTIALS)
+    {
+        // Card 1: Setup Instructions (y: 36..124, h: 88)
+        C2D_DrawRectSolid(10, 36, 0.1f, 380, 88, UI_CLR_CARD);
+        C2D_DrawRectSolid(10, 36, 0.2f, 4, 88, UI_CLR_GOLD);
+
+        ui_draw_text(22, 42, 0.50f, UI_CLR_GOLD, "CREDENTIAL SETUP REQUIRED");
+        ui_draw_text(22, 60, 0.38f, UI_CLR_TEXT_WHITE, "Account credentials are required to connect and track achievements.");
+        ui_draw_text(22, 78, 0.38f, UI_CLR_BLUE, "Where to find your Web API Key:");
+        ui_draw_text(22, 94, 0.36f, UI_CLR_TEXT_WHITE, "1. Log into retroachievements.org -> Settings -> Keys");
+        ui_draw_text(22, 108, 0.35f, UI_CLR_TEXT_DIM, "2. Copy 'Web API Key' (NOT your account password)");
+
+        // Card 2: Current Draft Values & Status (y: 130..232, h: 102)
+        bool user_ok = config_validate_username(draft_username);
+        bool key_ok  = config_validate_api_key(draft_api_key);
+        bool has_err = (status_message && (strstr(status_message, "Invalid") ||
+                                           strstr(status_message, "failed") ||
+                                           strstr(status_message, "Failed") ||
+                                           strstr(status_message, "Error") ||
+                                           strstr(status_message, "error")));
+
+        u32 card2_accent = has_err ? UI_CLR_RED : ((user_ok && key_ok) ? UI_CLR_GREEN : UI_CLR_BLUE);
+        C2D_DrawRectSolid(10, 130, 0.1f, 380, 102, UI_CLR_CARD);
+        C2D_DrawRectSolid(10, 130, 0.2f, 4, 102, card2_accent);
+
+        ui_draw_text(22, 136, 0.46f, UI_CLR_TEXT_WHITE, "CURRENT CREDENTIALS");
+
+        // Username row
+        ui_draw_text(22, 154, 0.40f, UI_CLR_TEXT_DIM, "Username:");
+        if (draft_username && draft_username[0] != '\0')
+        {
+            ui_draw_text(110, 154, 0.40f, user_ok ? UI_CLR_GOLD : UI_CLR_RED, draft_username);
+        }
+        else
+        {
+            ui_draw_text(110, 154, 0.40f, UI_CLR_BORDER, "<Not Set>");
+        }
+
+        // Web API Key row (Masked with asterisks for privacy)
+        ui_draw_text(22, 172, 0.40f, UI_CLR_TEXT_DIM, "Web API Key:");
+        if (draft_api_key && draft_api_key[0] != '\0')
+        {
+            char masked[33];
+            size_t klen = strlen(draft_api_key);
+            if (klen > 32) klen = 32;
+            for (size_t i = 0; i < klen; i++)
+            {
+                masked[i] = '*';
+            }
+            masked[klen] = '\0';
+
+            char key_disp[96];
+            if (key_ok)
+            {
+                snprintf(key_disp, sizeof(key_disp), "%s  (%zu chars) [OK]", masked, strlen(draft_api_key));
+                ui_draw_text(110, 172, 0.40f, UI_CLR_GREEN, key_disp);
+            }
+            else
+            {
+                snprintf(key_disp, sizeof(key_disp), "%s  [Invalid]", masked);
+                ui_draw_text(110, 172, 0.40f, UI_CLR_RED, key_disp);
+            }
+        }
+        else
+        {
+            ui_draw_text(110, 172, 0.40f, UI_CLR_BORDER, "<Not Set>");
+        }
+
+        // Status or instruction line
+        if (has_err && status_message)
+        {
+            ui_draw_text(22, 196, 0.38f, UI_CLR_RED, status_message);
+        }
+        else if (is_loading)
+        {
+            ui_draw_text(22, 196, 0.38f, UI_CLR_BLUE, "Connecting to RetroAchievements to verify credentials...");
+        }
+        else if (user_ok && key_ok)
+        {
+            ui_draw_text(22, 196, 0.38f, UI_CLR_GREEN, "Ready to save! Tap [Save & Connect] on the bottom screen.");
+        }
+        else
+        {
+            ui_draw_text(22, 196, 0.36f, UI_CLR_TEXT_DIM, "Tap buttons on the bottom screen using stylus to enter info.");
+        }
+
+        return;
+    }
+
     // Card 1: User Profile Summary (y: 36..114, h: 78)
     C2D_DrawRectSolid(10, 36, 0.1f, 380, 78, UI_CLR_CARD);
     C2D_DrawRectSolid(10, 36, 0.2f, 4, 78, summary_loaded ? UI_CLR_GOLD : UI_CLR_BORDER);
@@ -220,11 +416,22 @@ void ui_render_top_screen(
                  (unsigned long)summary->rank, (unsigned long)summary->total_ranked);
         ui_draw_text(76, 78, 0.40f, UI_CLR_BLUE, rank_line);
 
-        if (summary->rich_presence[0] != '\0')
+        if (summary->motto[0] != '\0')
         {
-            char act_line[80];
-            snprintf(act_line, sizeof(act_line), "Activity: %.45s", summary->rich_presence);
-            ui_draw_text(76, 94, 0.38f, UI_CLR_TEXT_DIM, act_line);
+            char motto_line[96];
+            if (strlen(summary->motto) > 48)
+            {
+                snprintf(motto_line, sizeof(motto_line), "Motto: %.45s...", summary->motto);
+            }
+            else
+            {
+                snprintf(motto_line, sizeof(motto_line), "Motto: %s", summary->motto);
+            }
+            ui_draw_text(76, 94, 0.38f, UI_CLR_TEXT_DIM, motto_line);
+        }
+        else
+        {
+            ui_draw_text(76, 94, 0.38f, UI_CLR_BORDER, "Motto: None");
         }
     }
     else
@@ -427,6 +634,9 @@ void ui_render_bottom_screen(
     const char* search_query,
     const search_result_item_t* search_results,
     size_t search_results_count,
+    const char* draft_username,
+    const char* draft_api_key,
+    settings_modal_t settings_modal,
     uint32_t frame_count
 )
 {
@@ -439,58 +649,203 @@ void ui_render_bottom_screen(
     C2D_SceneBegin(s_bottom_target);
 
     // Header bar (y: 0..26)
-    C2D_DrawRectSolid(0, 0, 0.1f, UI_SCREEN_BOT_W, 26, UI_CLR_BANNER);
-    C2D_DrawRectSolid(0, 25, 0.1f, UI_SCREEN_BOT_W, 1, UI_CLR_BORDER);
+    C2D_DrawRectSolid(0, 0, 0.6f, UI_SCREEN_BOT_W, 26, UI_CLR_BANNER);
+    C2D_DrawRectSolid(0, 25, 0.62f, UI_SCREEN_BOT_W, 1, UI_CLR_BORDER);
+
+    if (state == APP_STATE_SETUP_CREDENTIALS)
+    {
+        // Header bar text
+        ui_draw_text_depth(8, 6, 0.65f, 0.44f, UI_CLR_GOLD, "CREDENTIAL CONFIGURATION");
+
+        bool user_ok = config_validate_username(draft_username);
+        bool key_ok  = config_validate_api_key(draft_api_key);
+        bool can_save = user_ok && key_ok && !is_loading;
+
+        // Button 1: [ Set Username ] (y: 32..74, h: 42)
+        C2D_DrawRectSolid(16, 32, 0.1f, 288, 42, UI_CLR_CARD);
+        C2D_DrawRectSolid(16, 32, 0.2f, 4, 42, user_ok ? UI_CLR_GREEN : UI_CLR_BLUE);
+        C2D_DrawRectSolid(16, 32, 0.15f, 288, 1, UI_CLR_BORDER);
+        C2D_DrawRectSolid(16, 73, 0.15f, 288, 1, UI_CLR_BORDER);
+        C2D_DrawRectSolid(303, 32, 0.15f, 1, 42, UI_CLR_BORDER);
+
+        ui_draw_text(26, 38, 0.44f, UI_CLR_BLUE, "[ Set Username ]");
+        if (draft_username && draft_username[0] != '\0')
+        {
+            ui_draw_text(26, 54, 0.38f, UI_CLR_TEXT_WHITE, draft_username);
+        }
+        else
+        {
+            ui_draw_text(26, 54, 0.36f, UI_CLR_TEXT_DIM, "Tap to enter your RetroAchievements username");
+        }
+
+        // Button 2: [ Set Web API Key ] (y: 80..122, h: 42)
+        C2D_DrawRectSolid(16, 80, 0.1f, 288, 42, UI_CLR_CARD);
+        C2D_DrawRectSolid(16, 80, 0.2f, 4, 42, key_ok ? UI_CLR_GREEN : UI_CLR_GOLD);
+        C2D_DrawRectSolid(16, 80, 0.15f, 288, 1, UI_CLR_BORDER);
+        C2D_DrawRectSolid(16, 121, 0.15f, 288, 1, UI_CLR_BORDER);
+        C2D_DrawRectSolid(303, 80, 0.15f, 1, 42, UI_CLR_BORDER);
+
+        ui_draw_text(26, 86, 0.44f, UI_CLR_GOLD, "[ Set Web API Key ]");
+        if (draft_api_key && draft_api_key[0] != '\0')
+        {
+            char masked[33];
+            size_t klen = strlen(draft_api_key);
+            if (klen > 24) klen = 24;
+            for (size_t i = 0; i < klen; i++) masked[i] = '*';
+            masked[klen] = '\0';
+            char key_str[64];
+            snprintf(key_str, sizeof(key_str), "%s (%zu chars)", masked, strlen(draft_api_key));
+            ui_draw_text(26, 102, 0.38f, key_ok ? UI_CLR_TEXT_WHITE : UI_CLR_RED, key_str);
+        }
+        else
+        {
+            ui_draw_text(26, 102, 0.36f, UI_CLR_TEXT_DIM, "Tap to enter Web API Key");
+        }
+
+        // Info / Prompt area (y: 126..144)
+        bool has_err = (status_message && (strstr(status_message, "Invalid") ||
+                                            strstr(status_message, "failed") ||
+                                            strstr(status_message, "Failed") ||
+                                            strstr(status_message, "Error") ||
+                                            strstr(status_message, "error")));
+        if (has_err && status_message)
+        {
+            ui_draw_text_wrapped(16, 128, 0.35f, 288.0f, UI_CLR_RED, status_message);
+        }
+        else if (can_save)
+        {
+            ui_draw_text(16, 130, 0.37f, UI_CLR_GREEN, "Credentials valid! Tap below to save & connect.");
+        }
+        else
+        {
+            ui_draw_text(16, 130, 0.35f, UI_CLR_TEXT_DIM, "Enter your Web API Key from RetroAchievements settings.");
+        }
+
+        // Action Button: [ Save & Connect ] (y: 150..206, h: 56)
+        C2D_DrawRectSolid(16, 150, 0.1f, 288, 56, UI_CLR_CARD);
+        C2D_DrawRectSolid(16, 150, 0.2f, 6, 56, can_save ? UI_CLR_GREEN : UI_CLR_BORDER);
+        C2D_DrawRectSolid(16, 150, 0.15f, 288, 1, can_save ? UI_CLR_GREEN : UI_CLR_BORDER);
+        C2D_DrawRectSolid(16, 205, 0.15f, 288, 1, can_save ? UI_CLR_GREEN : UI_CLR_BORDER);
+        C2D_DrawRectSolid(303, 150, 0.15f, 1, 56, can_save ? UI_CLR_GREEN : UI_CLR_BORDER);
+
+        if (can_save)
+        {
+            ui_draw_text(28, 158, 0.50f, UI_CLR_GREEN, "[ Save & Connect ]");
+            ui_draw_text(28, 180, 0.36f, UI_CLR_TEXT_WHITE, "Save to config.ini and test connection");
+        }
+        else
+        {
+            ui_draw_text(28, 158, 0.46f, UI_CLR_TEXT_DIM, "[ Save & Connect ] (Disabled)");
+            if (is_loading)
+            {
+                ui_draw_text(28, 180, 0.36f, UI_CLR_BLUE, "Connecting to RetroAchievements...");
+            }
+            else
+            {
+                ui_draw_text(28, 180, 0.35f, UI_CLR_BORDER, "Provide both username and Web API key");
+            }
+        }
+
+        // Bottom Navigation Bar (y: 216..240)
+        C2D_DrawRectSolid(0, 216, 0.6f, UI_SCREEN_BOT_W, 24, UI_CLR_BANNER);
+        C2D_DrawRectSolid(0, 216, 0.62f, UI_SCREEN_BOT_W, 1, UI_CLR_BORDER);
+        ui_draw_text_depth(8, 222, 0.65f, 0.35f, UI_CLR_TEXT_WHITE, "[Touch] Select Field  [A] Save & Connect  [START] Exit");
+
+        return;
+    }
 
     if (state == APP_STATE_ERROR)
     {
-        ui_draw_text(8, 6, 0.45f, UI_CLR_RED, "SYSTEM RECOVERY & ACTIONS");
+        ui_draw_text_depth(8, 6, 0.65f, 0.45f, UI_CLR_RED, "SYSTEM RECOVERY & ACTIONS");
+    }
+    else if (state == APP_STATE_SETTINGS)
+    {
+        // Virtual Back Button on Left: x in [4, 36], y in [2, 24]
+        C2D_DrawRectSolid(4, 2, 0.63f, 32, 22, UI_CLR_CARD);
+        C2D_DrawRectSolid(4, 2, 0.64f, 32, 22, UI_CLR_BORDER);
+        ui_draw_back_icon(20.0f, 13.0f, UI_CLR_GOLD);
+        ui_draw_text_depth(44, 6, 0.65f, 0.40f, UI_CLR_GOLD, "SETTINGS & DATA");
     }
     else if (state == APP_STATE_GAME_DETAIL)
     {
-        // Virtual Back Button on Left: x in [4, 68], y in [2, 24]
-        C2D_DrawRectSolid(4, 2, 0.2f, 64, 22, UI_CLR_CARD);
-        C2D_DrawRectSolid(4, 2, 0.25f, 64, 22, UI_CLR_BORDER);
-        ui_draw_text(10, 5, 0.40f, UI_CLR_GOLD, "< Back");
+        // Virtual Back Button on Left: x in [4, 36], y in [2, 24]
+        C2D_DrawRectSolid(4, 2, 0.63f, 32, 22, UI_CLR_CARD);
+        C2D_DrawRectSolid(4, 2, 0.64f, 32, 22, UI_CLR_BORDER);
+        ui_draw_back_icon(20.0f, 13.0f, UI_CLR_GOLD);
 
         char ach_hdr[64];
         snprintf(ach_hdr, sizeof(ach_hdr), "ACHIEVEMENTS (%zu)",
                  (progress_loaded && progress) ? progress->achievement_count : 0);
-        ui_draw_text(74, 6, 0.40f, UI_CLR_TEXT_WHITE, ach_hdr);
+        ui_draw_text_depth(44, 6, 0.65f, 0.40f, UI_CLR_TEXT_WHITE, ach_hdr);
     }
     else if (state == APP_STATE_SEARCH)
     {
-        // Virtual Back Button on Left: x in [4, 68], y in [2, 24]
-        C2D_DrawRectSolid(4, 2, 0.2f, 64, 22, UI_CLR_CARD);
-        C2D_DrawRectSolid(4, 2, 0.25f, 64, 22, UI_CLR_BORDER);
-        ui_draw_text(10, 5, 0.40f, UI_CLR_GOLD, "< Back");
+        // Virtual Back Button on Left: x in [4, 36], y in [2, 24]
+        C2D_DrawRectSolid(4, 2, 0.63f, 32, 22, UI_CLR_CARD);
+        C2D_DrawRectSolid(4, 2, 0.64f, 32, 22, UI_CLR_BORDER);
+        ui_draw_back_icon(20.0f, 13.0f, UI_CLR_GOLD);
 
         char search_hdr[64];
         snprintf(search_hdr, sizeof(search_hdr), "SEARCH (%zu)", search_results_count);
-        ui_draw_text(74, 6, 0.40f, UI_CLR_TEXT_WHITE, search_hdr);
+        ui_draw_text_depth(44, 6, 0.65f, 0.40f, UI_CLR_TEXT_WHITE, search_hdr);
     }
     else // APP_STATE_USER_SUMMARY or APP_STATE_INIT
     {
         char games_hdr[64];
         snprintf(games_hdr, sizeof(games_hdr), "RECENT GAMES (%zu)",
                  (summary_loaded && summary) ? summary->recent_games_count : 0);
-        ui_draw_text(8, 6, 0.42f, UI_CLR_GOLD, games_hdr);
+        ui_draw_text_depth(8, 6, 0.65f, 0.42f, UI_CLR_GOLD, games_hdr);
     }
 
     if (state != APP_STATE_ERROR)
     {
+        // Settings Icon Button: x in [212, 244], y in [2, 24]
+        C2D_DrawRectSolid(212, 2, 0.63f, 32, 22, UI_CLR_CARD);
+        C2D_DrawRectSolid(212, 2, 0.64f, 32, 22, (state == APP_STATE_SETTINGS) ? UI_CLR_GOLD : UI_CLR_BORDER);
+        ui_draw_settings_icon(228.0f, 13.0f, (state == APP_STATE_SETTINGS) ? UI_CLR_GOLD : UI_CLR_BLUE);
+
         // Search Icon Button: x in [248, 280], y in [2, 24]
-        C2D_DrawRectSolid(248, 2, 0.2f, 32, 22, UI_CLR_CARD);
-        C2D_DrawRectSolid(248, 2, 0.25f, 32, 22, (state == APP_STATE_SEARCH) ? UI_CLR_GOLD : UI_CLR_BORDER);
+        C2D_DrawRectSolid(248, 2, 0.63f, 32, 22, UI_CLR_CARD);
+        C2D_DrawRectSolid(248, 2, 0.64f, 32, 22, (state == APP_STATE_SEARCH) ? UI_CLR_GOLD : UI_CLR_BORDER);
         ui_draw_search_icon(264.0f, 13.0f, (state == APP_STATE_SEARCH) ? UI_CLR_GOLD : UI_CLR_BLUE);
 
         // Reload / Sync Icon Button: x in [284, 316], y in [2, 24]
-        C2D_DrawRectSolid(284, 2, 0.2f, 32, 22, UI_CLR_CARD);
-        C2D_DrawRectSolid(284, 2, 0.25f, 32, 22, is_loading ? UI_CLR_GOLD : UI_CLR_BORDER);
+        C2D_DrawRectSolid(284, 2, 0.63f, 32, 22, UI_CLR_CARD);
+        C2D_DrawRectSolid(284, 2, 0.64f, 32, 22, is_loading ? UI_CLR_GOLD : UI_CLR_BORDER);
         ui_draw_reload_icon(300.0f, 13.0f, is_loading ? UI_CLR_GOLD : UI_CLR_BLUE);
     }
 
-    if (state == APP_STATE_ERROR)
+    if (state == APP_STATE_SETTINGS)
+    {
+        // Interactive Maintenance Action Cards
+        // Card 1: Reset User Data (y: 36..86, h: 50, x: 16..304)
+        C2D_DrawRectSolid(16, 36, 0.1f, 288, 50, UI_CLR_CARD);
+        C2D_DrawRectSolid(16, 36, 0.2f, 4, 50, UI_CLR_RED);
+        C2D_DrawRectSolid(16, 36, 0.15f, 288, 1, UI_CLR_BORDER);
+        C2D_DrawRectSolid(16, 85, 0.15f, 288, 1, UI_CLR_BORDER);
+        C2D_DrawRectSolid(303, 36, 0.15f, 1, 50, UI_CLR_BORDER);
+        ui_draw_text(26, 42, 0.44f, UI_CLR_RED, "[ Reset User Data ]");
+        ui_draw_text(26, 62, 0.36f, UI_CLR_TEXT_WHITE, "Wipe credentials & return to Setup screen");
+
+        // Card 2: Clear Cache (y: 94..144, h: 50, x: 16..304)
+        C2D_DrawRectSolid(16, 94, 0.1f, 288, 50, UI_CLR_CARD);
+        C2D_DrawRectSolid(16, 94, 0.2f, 4, 50, UI_CLR_GOLD);
+        C2D_DrawRectSolid(16, 94, 0.15f, 288, 1, UI_CLR_BORDER);
+        C2D_DrawRectSolid(16, 143, 0.15f, 288, 1, UI_CLR_BORDER);
+        C2D_DrawRectSolid(303, 94, 0.15f, 1, 50, UI_CLR_BORDER);
+        ui_draw_text(26, 100, 0.44f, UI_CLR_GOLD, "[ Clear Cache ]");
+        ui_draw_text(26, 120, 0.36f, UI_CLR_TEXT_WHITE, "Delete cached badges & responses on SD card");
+
+        // Card 3: Back to App (y: 152..202, h: 50, x: 16..304)
+        C2D_DrawRectSolid(16, 152, 0.1f, 288, 50, UI_CLR_CARD);
+        C2D_DrawRectSolid(16, 152, 0.2f, 4, 50, UI_CLR_BLUE);
+        C2D_DrawRectSolid(16, 152, 0.15f, 288, 1, UI_CLR_BORDER);
+        C2D_DrawRectSolid(16, 201, 0.15f, 288, 1, UI_CLR_BORDER);
+        C2D_DrawRectSolid(303, 152, 0.15f, 1, 50, UI_CLR_BORDER);
+        ui_draw_text(26, 158, 0.44f, UI_CLR_BLUE, "[ Back ]");
+        ui_draw_text(26, 178, 0.36f, UI_CLR_TEXT_WHITE, "Return to previous screen");
+    }
+    else if (state == APP_STATE_ERROR)
     {
         // Interactive touch cards for error recovery
         // Card 1: Retry (y: 40..84)
@@ -659,27 +1014,81 @@ void ui_render_bottom_screen(
     }
 
     // Bottom Navigation Bar (y: 216..240)
-    C2D_DrawRectSolid(0, 216, 0.1f, UI_SCREEN_BOT_W, 24, UI_CLR_BANNER);
-    C2D_DrawRectSolid(0, 216, 0.2f, UI_SCREEN_BOT_W, 1, UI_CLR_BORDER);
+    C2D_DrawRectSolid(0, 216, 0.6f, UI_SCREEN_BOT_W, 24, UI_CLR_BANNER);
+    C2D_DrawRectSolid(0, 216, 0.62f, UI_SCREEN_BOT_W, 1, UI_CLR_BORDER);
 
     if (state == APP_STATE_ERROR)
     {
-        ui_draw_text(8, 222, 0.35f, UI_CLR_TEXT_DIM, "[A] Retry  [B] Back  [Y] Reload Config  [START] Exit");
+        ui_draw_text_depth(8, 222, 0.65f, 0.35f, UI_CLR_TEXT_WHITE, "[A] Retry  [B] Back  [Y] Reload Config  [START] Exit");
+    }
+    else if (state == APP_STATE_SETTINGS)
+    {
+        ui_draw_text_depth(8, 222, 0.65f, 0.35f, UI_CLR_TEXT_WHITE, "[Touch] Select Action  [B] Back  [START] Exit");
     }
     else if (state == APP_STATE_GAME_DETAIL)
     {
-        ui_draw_text(8, 222, 0.35f, UI_CLR_TEXT_DIM, "[D-Pad] Scroll  [A] Inspect  [B] Back  [X] Sync  [START] Exit");
+        ui_draw_text_depth(8, 222, 0.65f, 0.35f, UI_CLR_TEXT_WHITE, "[D-Pad] Scroll  [A] Inspect  [B] Back  [X] Sync  [START] Exit");
     }
     else if (state == APP_STATE_SEARCH)
     {
-        ui_draw_text(8, 222, 0.35f, UI_CLR_TEXT_DIM, "[D-Pad] Scroll  [A] Select Game  [B] Back  [Y] Search  [START] Exit");
+        ui_draw_text_depth(8, 222, 0.65f, 0.35f, UI_CLR_TEXT_WHITE, "[D-Pad] Scroll  [A] Select Game  [B] Back  [Y] Search  [START] Exit");
     }
     else if (state == APP_STATE_USER_SUMMARY)
     {
-        ui_draw_text(8, 222, 0.35f, UI_CLR_TEXT_DIM, "[D-Pad] Scroll  [A] Select Game  [X] Sync  [Y] Search  [START] Exit");
+        ui_draw_text_depth(8, 222, 0.65f, 0.35f, UI_CLR_TEXT_WHITE, "[D-Pad] Scroll  [A] Select Game  [X] Sync  [Y] Search  [START] Exit");
     }
     else
     {
-        ui_draw_text(8, 222, 0.35f, UI_CLR_TEXT_DIM, "Loading RetroAchievements for Nintendo 3DS...");
+        ui_draw_text_depth(8, 222, 0.65f, 0.35f, UI_CLR_TEXT_WHITE, "Loading RetroAchievements for Nintendo 3DS...");
+    }
+
+    // Confirmation Modal Dialog Overlay
+    if (settings_modal != SETTINGS_MODAL_NONE)
+    {
+        // Dark translucent scrim/backdrop: depth 0.7f
+        C2D_DrawRectSolid(0, 0, 0.7f, UI_SCREEN_BOT_W, UI_SCREEN_BOT_H, C2D_Color32(0, 0, 0, 190));
+
+        // Modal Box: x: 16..304, y: 35..205 (w: 288, h: 170), depth 0.75f
+        C2D_DrawRectSolid(16, 35, 0.75f, 288, 170, UI_CLR_CARD);
+        C2D_DrawRectSolid(16, 35, 0.78f, 288, 1, UI_CLR_BORDER);
+        C2D_DrawRectSolid(16, 204, 0.78f, 288, 1, UI_CLR_BORDER);
+        C2D_DrawRectSolid(16, 35, 0.78f, 1, 170, UI_CLR_BORDER);
+        C2D_DrawRectSolid(303, 35, 0.78f, 1, 170, UI_CLR_BORDER);
+
+        if (settings_modal == SETTINGS_MODAL_RESET_USER_DATA)
+        {
+            C2D_DrawRectSolid(16, 35, 0.76f, 288, 4, UI_CLR_RED);
+            ui_draw_text_depth(26, 44, 0.9f, 0.48f, UI_CLR_RED, "CONFIRM: RESET USER DATA");
+            ui_draw_text_depth(26, 68, 0.9f, 0.38f, UI_CLR_TEXT_WHITE, "Are you sure you want to reset credentials?");
+            ui_draw_text_depth(26, 88, 0.9f, 0.36f, UI_CLR_TEXT_DIM, "This deletes config.ini from your SD card");
+            ui_draw_text_depth(26, 104, 0.9f, 0.36f, UI_CLR_TEXT_DIM, "and returns to initial credential setup.");
+            ui_draw_text_depth(26, 126, 0.9f, 0.36f, UI_CLR_RED, "This action cannot be undone.");
+        }
+        else if (settings_modal == SETTINGS_MODAL_CLEAR_CACHE)
+        {
+            C2D_DrawRectSolid(16, 35, 0.76f, 288, 4, UI_CLR_GOLD);
+            ui_draw_text_depth(26, 44, 0.9f, 0.48f, UI_CLR_GOLD, "CONFIRM: CLEAR CACHE");
+            ui_draw_text_depth(26, 68, 0.9f, 0.38f, UI_CLR_TEXT_WHITE, "Are you sure you want to clear cached files?");
+            ui_draw_text_depth(26, 88, 0.9f, 0.36f, UI_CLR_TEXT_DIM, "All badge icons and cached JSON files will be");
+            ui_draw_text_depth(26, 104, 0.9f, 0.36f, UI_CLR_TEXT_DIM, "deleted from sdmc:/3ds/retroachievements/cache/.");
+            ui_draw_text_depth(26, 126, 0.9f, 0.36f, UI_CLR_GOLD, "Images will re-download when viewed.");
+        }
+
+        // Modal Action 1: [ Confirm ] (x: 24..154, y: 154..194, w: 130, h: 40)
+        u32 confirm_accent = (settings_modal == SETTINGS_MODAL_RESET_USER_DATA) ? UI_CLR_RED : UI_CLR_GOLD;
+        C2D_DrawRectSolid(24, 154, 0.8f, 130, 40, UI_CLR_BANNER);
+        C2D_DrawRectSolid(24, 154, 0.85f, 4, 40, confirm_accent);
+        C2D_DrawRectSolid(24, 154, 0.82f, 130, 1, UI_CLR_BORDER);
+        C2D_DrawRectSolid(24, 193, 0.82f, 130, 1, UI_CLR_BORDER);
+        C2D_DrawRectSolid(153, 154, 0.82f, 1, 40, UI_CLR_BORDER);
+        ui_draw_text_depth(34, 164, 0.9f, 0.44f, confirm_accent, "[A] Confirm");
+
+        // Modal Action 2: [ Cancel ] (x: 166..296, y: 154..194, w: 130, h: 40)
+        C2D_DrawRectSolid(166, 154, 0.8f, 130, 40, UI_CLR_BANNER);
+        C2D_DrawRectSolid(166, 154, 0.85f, 4, 40, UI_CLR_BLUE);
+        C2D_DrawRectSolid(166, 154, 0.82f, 130, 1, UI_CLR_BORDER);
+        C2D_DrawRectSolid(166, 193, 0.82f, 130, 1, UI_CLR_BORDER);
+        C2D_DrawRectSolid(295, 154, 0.82f, 1, 40, UI_CLR_BORDER);
+        ui_draw_text_depth(176, 164, 0.9f, 0.44f, UI_CLR_BLUE, "[B] Cancel");
     }
 }
