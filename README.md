@@ -21,6 +21,10 @@ DISCLAIMER: This application is vibe-coded; use at your own risk and do not dist
 - **Secure Configuration:**
   - Simple INI configuration (`sdmc:/3ds/retroachievements/config.ini`) with auto-generated template on first boot.
   - Volatile memory zeroing for API keys upon teardown.
+- **Hardware DSP UI Sound Effects:**
+  - Lightweight programmatic audio synthesis via Nintendo 3DS `ndsp` (zero external asset overhead).
+  - Tactile audio cues for list navigation, actions, back navigation, success chimes, and errors.
+  - In-app mute toggle in the Settings menu persisted to `config.ini`.
 
 ---
 

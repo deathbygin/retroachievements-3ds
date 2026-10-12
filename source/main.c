@@ -4,6 +4,7 @@
  */
 
 #include "async_api.h"
+#include "audio.h"
 #include "badge.h"
 #include "config.h"
 #include "network.h"
@@ -29,6 +30,7 @@ static bool s_ui_initialized        = false;
 static bool s_badge_initialized     = false;
 static bool s_net_initialized       = false;
 static bool s_async_initialized     = false;
+static bool s_audio_initialized     = false;
 
 static app_config_t        s_config;
 static config_status_t     s_config_status;
@@ -455,10 +457,12 @@ static void handle_touch_tap(u16 px, u16 py)
             if (s_settings_modal == SETTINGS_MODAL_RESET_USER_DATA)
             {
                 execute_reset_user_data();
+                audio_play_sfx(SFX_SUCCESS);
             }
             else if (s_settings_modal == SETTINGS_MODAL_CLEAR_CACHE)
             {
                 execute_clear_cache();
+                audio_play_sfx(SFX_SUCCESS);
             }
             return;
         }
@@ -467,6 +471,7 @@ static void handle_touch_tap(u16 px, u16 py)
         if (px >= 166 && px <= 296 && py >= 154 && py <= 194)
         {
             s_settings_modal = SETTINGS_MODAL_NONE;
+            audio_play_sfx(SFX_BACK);
             return;
         }
 
@@ -480,6 +485,7 @@ static void handle_touch_tap(u16 px, u16 py)
         // Field 1: [ Set Username ] (y: 32..74, x: 16..304)
         if (py >= 32 && py <= 74 && px >= 16 && px <= 304)
         {
+            audio_play_sfx(SFX_NAV);
             launch_username_keyboard();
             return;
         }
@@ -487,6 +493,7 @@ static void handle_touch_tap(u16 px, u16 py)
         // Field 2: [ Set Web API Key ] (y: 80..122, x: 16..304)
         if (py >= 80 && py <= 122 && px >= 16 && px <= 304)
         {
+            audio_play_sfx(SFX_NAV);
             launch_api_key_keyboard();
             return;
         }
@@ -496,7 +503,12 @@ static void handle_touch_tap(u16 px, u16 py)
         {
             if (config_validate_username(s_draft_username) && config_validate_api_key(s_draft_api_key))
             {
+                audio_play_sfx(SFX_SELECT);
                 trigger_save_and_connect();
+            }
+            else
+            {
+                audio_play_sfx(SFX_ERROR);
             }
             return;
         }
@@ -511,6 +523,7 @@ static void handle_touch_tap(u16 px, u16 py)
         if (px <= 48 && py <= 26)
         {
             s_app_state = s_prev_state;
+            audio_play_sfx(SFX_BACK);
             return;
         }
 
@@ -518,6 +531,7 @@ static void handle_touch_tap(u16 px, u16 py)
         if (px >= 212 && px <= 244 && py <= 26)
         {
             s_app_state = s_prev_state;
+            audio_play_sfx(SFX_BACK);
             return;
         }
 
@@ -525,6 +539,7 @@ static void handle_touch_tap(u16 px, u16 py)
         if (py >= 36 && py <= 86 && px >= 16 && px <= 304)
         {
             s_settings_modal = SETTINGS_MODAL_RESET_USER_DATA;
+            audio_play_sfx(SFX_NAV);
             return;
         }
 
@@ -532,13 +547,20 @@ static void handle_touch_tap(u16 px, u16 py)
         if (py >= 94 && py <= 144 && px >= 16 && px <= 304)
         {
             s_settings_modal = SETTINGS_MODAL_CLEAR_CACHE;
+            audio_play_sfx(SFX_NAV);
             return;
         }
 
-        // Action 3: [ Back ] (y: 152..202, x: 16..304)
+        // Action 3: [ Toggle Sound Effects ] (y: 152..202, x: 16..304)
         if (py >= 152 && py <= 202 && px >= 16 && px <= 304)
         {
-            s_app_state = s_prev_state;
+            s_config.sound_enabled = !s_config.sound_enabled;
+            config_save(&s_config);
+            audio_set_enabled(s_config.sound_enabled);
+            if (s_config.sound_enabled)
+            {
+                audio_play_sfx(SFX_TOGGLE);
+            }
             return;
         }
 
@@ -551,6 +573,7 @@ static void handle_touch_tap(u16 px, u16 py)
         // 1. Back button icon on left: x in [0, 48] (for GAME_DETAIL or SEARCH)
         if (px <= 48 && (s_app_state == APP_STATE_GAME_DETAIL || s_app_state == APP_STATE_SEARCH))
         {
+            audio_play_sfx(SFX_BACK);
             if (s_is_loading)
             {
                 async_api_cancel();
@@ -565,6 +588,7 @@ static void handle_touch_tap(u16 px, u16 py)
         // 2. Settings Icon button: x in [212, 244]
         if (px >= 212 && px <= 244)
         {
+            audio_play_sfx(SFX_NAV);
             s_prev_state = s_app_state;
             s_app_state = APP_STATE_SETTINGS;
             config_refresh_cache_size_async();
@@ -576,6 +600,7 @@ static void handle_touch_tap(u16 px, u16 py)
         // 3. Search Icon button: x in [248, 280]
         if (px >= 248 && px <= 280)
         {
+            audio_play_sfx(SFX_NAV);
             launch_search_keyboard();
             return;
         }
@@ -585,6 +610,7 @@ static void handle_touch_tap(u16 px, u16 py)
         // 4. Reload / Sync Icon button: x in [284, 316]
         if (px >= 284 && px <= 316)
         {
+            audio_play_sfx(SFX_NAV);
             if (s_app_state == APP_STATE_GAME_DETAIL && s_game_progress_loaded)
             {
                 trigger_fetch_game_progress(s_game_progress.game_id);
@@ -603,6 +629,7 @@ static void handle_touch_tap(u16 px, u16 py)
         // Button 1: Retry (y: 40..84)
         if (py >= 40 && py <= 84 && px >= 16 && px <= 304)
         {
+            audio_play_sfx(SFX_SELECT);
             if (s_prev_state == APP_STATE_GAME_DETAIL && s_game_progress_loaded)
             {
                 trigger_fetch_game_progress(s_game_progress.game_id);
@@ -615,13 +642,16 @@ static void handle_touch_tap(u16 px, u16 py)
         // Button 2: Return to Profile (y: 94..138)
         else if (py >= 94 && py <= 138 && px >= 16 && px <= 304)
         {
+            audio_play_sfx(SFX_BACK);
             s_app_state = APP_STATE_USER_SUMMARY;
             snprintf(s_status_msg, sizeof(s_status_msg), "Returned to Profile Overview.");
         }
         // Button 3: Reload Config (y: 148..192)
         else if (py >= 148 && py <= 192 && px >= 16 && px <= 304)
         {
+            audio_play_sfx(SFX_NAV);
             s_config_status = config_load(&s_config);
+            audio_set_enabled(s_config.sound_enabled);
             if (config_needs_setup(&s_config))
             {
                 s_app_state = APP_STATE_SETUP_CREDENTIALS;
@@ -661,11 +691,13 @@ static void handle_touch_tap(u16 px, u16 py)
             {
                 if (s_selected_index == row)
                 {
+                    audio_play_sfx(SFX_SELECT);
                     uint32_t chosen_game = s_search_results[row].game_id;
                     trigger_fetch_game_progress(chosen_game);
                 }
                 else
                 {
+                    audio_play_sfx(SFX_NAV);
                     s_selected_index = row;
                     clamp_scroll_and_selection(current_items);
                 }
@@ -674,17 +706,20 @@ static void handle_touch_tap(u16 px, u16 py)
             {
                 if (s_selected_index == row)
                 {
+                    audio_play_sfx(SFX_SELECT);
                     uint32_t chosen_game = s_user_summary.recent_games[row].game_id;
                     trigger_fetch_game_progress(chosen_game);
                 }
                 else
                 {
+                    audio_play_sfx(SFX_NAV);
                     s_selected_index = row;
                     clamp_scroll_and_selection(current_items);
                 }
             }
             else if (s_app_state == APP_STATE_GAME_DETAIL)
             {
+                audio_play_sfx(SFX_NAV);
                 s_selected_index = row;
                 clamp_scroll_and_selection(current_items);
             }
@@ -741,6 +776,14 @@ static void init_subsystems(void)
 
     // 8. Application configuration & SDMC storage
     s_config_status = config_load(&s_config);
+
+    // 9. Audio Subsystem (NDSP & UI SFX)
+    if (audio_init())
+    {
+        s_audio_initialized = true;
+        audio_set_enabled(s_config.sound_enabled);
+    }
+
     if (config_needs_setup(&s_config))
     {
         s_app_state = APP_STATE_SETUP_CREDENTIALS;
@@ -807,21 +850,28 @@ static void cleanup_subsystems(void)
         s_ui_initialized = false;
     }
 
-    // 6. CFGU service
+    // 6. Audio Subsystem
+    if (s_audio_initialized)
+    {
+        audio_cleanup();
+        s_audio_initialized = false;
+    }
+
+    // 7. CFGU service
     if (s_cfgu_initialized)
     {
         cfguExit();
         s_cfgu_initialized = false;
     }
 
-    // 7. RomFS
+    // 8. RomFS
     if (s_romfs_initialized)
     {
         romfsExit();
         s_romfs_initialized = false;
     }
 
-    // 8. Graphics
+    // 9. Graphics
     if (s_gfx_initialized)
     {
         gfxExit();
@@ -856,6 +906,7 @@ int main(int argc, char* argv[])
         if (async_res == ASYNC_STATUS_SUCCESS)
         {
             s_is_loading = false;
+            audio_play_sfx(SFX_SUCCESS);
             if (completed_type == ASYNC_REQ_USER_SUMMARY)
             {
                 s_user_summary_loaded = true;
@@ -885,6 +936,7 @@ int main(int argc, char* argv[])
         else if (async_res == ASYNC_STATUS_ERROR)
         {
             s_is_loading = false;
+            audio_play_sfx(SFX_ERROR);
             if (s_app_state == APP_STATE_SETUP_CREDENTIALS)
             {
                 // Auth failure during setup: remain in STATE_SETUP_CREDENTIALS and display warning
@@ -991,6 +1043,7 @@ int main(int argc, char* argv[])
                 {
                     s_selected_index--;
                     clamp_scroll_and_selection(current_items);
+                    audio_play_sfx(SFX_NAV);
                 }
                 s_key_repeat_timer = 0;
             }
@@ -1000,6 +1053,7 @@ int main(int argc, char* argv[])
                 {
                     s_selected_index++;
                     clamp_scroll_and_selection(current_items);
+                    audio_play_sfx(SFX_NAV);
                 }
                 s_key_repeat_timer = 0;
             }
@@ -1012,6 +1066,7 @@ int main(int argc, char* argv[])
                     {
                         s_selected_index--;
                         clamp_scroll_and_selection(current_items);
+                        audio_play_sfx(SFX_NAV);
                     }
                 }
             }
@@ -1024,6 +1079,7 @@ int main(int argc, char* argv[])
                     {
                         s_selected_index++;
                         clamp_scroll_and_selection(current_items);
+                        audio_play_sfx(SFX_NAV);
                     }
                 }
             }
@@ -1038,6 +1094,7 @@ int main(int argc, char* argv[])
         {
             if (kDown & KEY_A)
             {
+                audio_play_sfx(SFX_SUCCESS);
                 if (s_settings_modal == SETTINGS_MODAL_RESET_USER_DATA)
                 {
                     execute_reset_user_data();
@@ -1049,6 +1106,7 @@ int main(int argc, char* argv[])
             }
             else if (kDown & (KEY_B | KEY_SELECT))
             {
+                audio_play_sfx(SFX_BACK);
                 s_settings_modal = SETTINGS_MODAL_NONE;
             }
         }
@@ -1058,10 +1116,12 @@ int main(int argc, char* argv[])
             {
                 if (s_app_state == APP_STATE_SETTINGS)
                 {
+                    audio_play_sfx(SFX_BACK);
                     s_app_state = s_prev_state;
                 }
                 else if (s_app_state != APP_STATE_SETUP_CREDENTIALS)
                 {
+                    audio_play_sfx(SFX_NAV);
                     s_prev_state = s_app_state;
                     s_app_state = APP_STATE_SETTINGS;
                     config_refresh_cache_size_async();
@@ -1074,11 +1134,17 @@ int main(int argc, char* argv[])
                 {
                     if (config_validate_username(s_draft_username) && config_validate_api_key(s_draft_api_key))
                     {
+                        audio_play_sfx(SFX_SELECT);
                         trigger_save_and_connect();
+                    }
+                    else
+                    {
+                        audio_play_sfx(SFX_ERROR);
                     }
                 }
                 else if (s_app_state == APP_STATE_ERROR)
                 {
+                    audio_play_sfx(SFX_SELECT);
                     if (s_prev_state == APP_STATE_GAME_DETAIL && s_game_progress_loaded)
                     {
                         trigger_fetch_game_progress(s_game_progress.game_id);
@@ -1092,6 +1158,7 @@ int main(int argc, char* argv[])
                 {
                     if (s_search_results_count > 0 && s_selected_index < (int)s_search_results_count)
                     {
+                        audio_play_sfx(SFX_SELECT);
                         uint32_t chosen_game = s_search_results[s_selected_index].game_id;
                         trigger_fetch_game_progress(chosen_game);
                     }
@@ -1101,11 +1168,13 @@ int main(int argc, char* argv[])
                     if (s_user_summary_loaded && s_user_summary.recent_games_count > 0 &&
                         s_selected_index < (int)s_user_summary.recent_games_count)
                     {
+                        audio_play_sfx(SFX_SELECT);
                         uint32_t chosen_game = s_user_summary.recent_games[s_selected_index].game_id;
                         trigger_fetch_game_progress(chosen_game);
                     }
                     else
                     {
+                        audio_play_sfx(SFX_SELECT);
                         trigger_fetch_user_summary();
                     }
                 }
@@ -1113,6 +1182,7 @@ int main(int argc, char* argv[])
 
             if (kDown & KEY_B)
             {
+                audio_play_sfx(SFX_BACK);
                 if (s_app_state == APP_STATE_SETTINGS)
                 {
                     s_app_state = s_prev_state;
@@ -1148,6 +1218,7 @@ int main(int argc, char* argv[])
 
             if (kDown & KEY_X)
             {
+                audio_play_sfx(SFX_NAV);
                 if (s_app_state == APP_STATE_SETUP_CREDENTIALS)
                 {
                     launch_username_keyboard();
@@ -1167,6 +1238,7 @@ int main(int argc, char* argv[])
 
             if (kDown & KEY_Y)
             {
+                audio_play_sfx(SFX_NAV);
                 if (s_app_state == APP_STATE_SETUP_CREDENTIALS)
                 {
                     launch_api_key_keyboard();
@@ -1174,6 +1246,7 @@ int main(int argc, char* argv[])
                 else if (s_app_state == APP_STATE_ERROR)
                 {
                     s_config_status = config_load(&s_config);
+                    audio_set_enabled(s_config.sound_enabled);
                     s_cache_size_mb = config_get_cache_size_mb();
                     if (config_needs_setup(&s_config))
                     {

@@ -836,14 +836,24 @@ void ui_render_bottom_screen(
         ui_draw_text(26, 100, 0.44f, UI_CLR_GOLD, "[ Clear Cache ]");
         ui_draw_text(26, 120, 0.36f, UI_CLR_TEXT_WHITE, "Delete cached badges & responses on SD card");
 
-        // Card 3: Back to App (y: 152..202, h: 50, x: 16..304)
+        // Card 3: Sound Effects Setting (y: 152..202, h: 50, x: 16..304)
+        bool sfx_enabled = (cfg != NULL) ? cfg->sound_enabled : true;
+        u32 sfx_clr = sfx_enabled ? UI_CLR_GREEN : UI_CLR_BORDER;
         C2D_DrawRectSolid(16, 152, 0.1f, 288, 50, UI_CLR_CARD);
-        C2D_DrawRectSolid(16, 152, 0.2f, 4, 50, UI_CLR_BLUE);
+        C2D_DrawRectSolid(16, 152, 0.2f, 4, 50, sfx_clr);
         C2D_DrawRectSolid(16, 152, 0.15f, 288, 1, UI_CLR_BORDER);
         C2D_DrawRectSolid(16, 201, 0.15f, 288, 1, UI_CLR_BORDER);
         C2D_DrawRectSolid(303, 152, 0.15f, 1, 50, UI_CLR_BORDER);
-        ui_draw_text(26, 158, 0.44f, UI_CLR_BLUE, "[ Back ]");
-        ui_draw_text(26, 178, 0.36f, UI_CLR_TEXT_WHITE, "Return to previous screen");
+        if (sfx_enabled)
+        {
+            ui_draw_text(26, 158, 0.44f, UI_CLR_GREEN, "[ Sound Effects: ON ]");
+            ui_draw_text(26, 178, 0.36f, UI_CLR_TEXT_WHITE, "Tap to disable UI sound effects");
+        }
+        else
+        {
+            ui_draw_text(26, 158, 0.44f, UI_CLR_BORDER, "[ Sound Effects: OFF ]");
+            ui_draw_text(26, 178, 0.36f, UI_CLR_TEXT_DIM, "Tap to enable UI sound effects");
+        }
     }
     else if (state == APP_STATE_ERROR)
     {
