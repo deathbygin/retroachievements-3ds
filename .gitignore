@@ -16,3 +16,4 @@ Thumbs.db
 # Sensitive credentials & local cache
 config.ini
 cache/
+
