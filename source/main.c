@@ -55,11 +55,13 @@ static settings_modal_t     s_settings_modal                 = SETTINGS_MODAL_NO
 static float                s_cache_size_mb                  = 0.0f;
 
 // Application State Machine
-static app_state_t         s_app_state            = APP_STATE_INIT;
-static app_state_t         s_prev_state           = APP_STATE_USER_SUMMARY;
-static bool                s_is_loading           = false;
-static uint32_t            s_frame_counter        = 0;
-static char                s_status_msg[128]      = {0};
+static app_state_t         s_app_state             = APP_STATE_INIT;
+static app_state_t         s_prev_state            = APP_STATE_USER_SUMMARY;
+static app_state_t         s_game_origin_state     = APP_STATE_USER_SUMMARY;
+static app_state_t         s_settings_return_state = APP_STATE_USER_SUMMARY;
+static bool                s_is_loading            = false;
+static uint32_t            s_frame_counter         = 0;
+static char                s_status_msg[128]       = {0};
 
 static float               s_scroll_y             = 0.0f;
 static int                 s_selected_index       = 0;
@@ -176,6 +178,7 @@ static void trigger_fetch_game_progress(uint32_t game_id)
     s_game_progress_loaded = false;
 
     s_is_loading = true;
+    s_game_origin_state = (s_app_state == APP_STATE_SEARCH) ? APP_STATE_SEARCH : APP_STATE_USER_SUMMARY;
     s_prev_state = s_app_state;
     s_app_state = APP_STATE_GAME_DETAIL;
     s_selected_index = 0;
@@ -425,6 +428,8 @@ static void execute_reset_user_data(void)
 
     // 4. Safely re-initialize state flow back to STATE_SETUP_CREDENTIALS
     s_settings_modal = SETTINGS_MODAL_NONE;
+    s_game_origin_state = APP_STATE_USER_SUMMARY;
+    s_settings_return_state = APP_STATE_USER_SUMMARY;
     s_app_state = APP_STATE_SETUP_CREDENTIALS;
     snprintf(s_status_msg, sizeof(s_status_msg), "Credentials reset. Please enter username and API key.");
 }
@@ -529,7 +534,7 @@ static void handle_touch_tap(u16 px, u16 py)
         // Virtual Back Button Icon on Left: x in [0, 48], y <= 26
         if (px <= 48 && py <= 26)
         {
-            s_app_state = s_prev_state;
+            s_app_state = s_settings_return_state;
             audio_play_sfx(SFX_BACK);
             return;
         }
@@ -537,7 +542,7 @@ static void handle_touch_tap(u16 px, u16 py)
         // Settings Icon Toggle: x in [212, 244], y <= 26
         if (px >= 212 && px <= 244 && py <= 26)
         {
-            s_app_state = s_prev_state;
+            s_app_state = s_settings_return_state;
             audio_play_sfx(SFX_BACK);
             return;
         }
@@ -586,7 +591,14 @@ static void handle_touch_tap(u16 px, u16 py)
                 async_api_cancel();
                 s_is_loading = false;
             }
-            s_app_state = (s_app_state == APP_STATE_GAME_DETAIL) ? s_prev_state : APP_STATE_USER_SUMMARY;
+            if (s_app_state == APP_STATE_GAME_DETAIL)
+            {
+                s_app_state = (s_game_origin_state == APP_STATE_SEARCH) ? APP_STATE_SEARCH : APP_STATE_USER_SUMMARY;
+            }
+            else
+            {
+                s_app_state = APP_STATE_USER_SUMMARY;
+            }
             s_selected_index = 0;
             s_scroll_y = 0.0f;
             return;
@@ -596,6 +608,7 @@ static void handle_touch_tap(u16 px, u16 py)
         if (px >= 212 && px <= 244)
         {
             audio_play_sfx(SFX_NAV);
+            s_settings_return_state = s_app_state;
             s_prev_state = s_app_state;
             s_app_state = APP_STATE_SETTINGS;
             config_refresh_cache_size_async();
@@ -1124,11 +1137,12 @@ int main(int argc, char* argv[])
                 if (s_app_state == APP_STATE_SETTINGS)
                 {
                     audio_play_sfx(SFX_BACK);
-                    s_app_state = s_prev_state;
+                    s_app_state = s_settings_return_state;
                 }
-                else if (s_app_state != APP_STATE_SETUP_CREDENTIALS)
+                else if (s_app_state != APP_STATE_SETUP_CREDENTIALS && s_app_state != APP_STATE_ERROR)
                 {
                     audio_play_sfx(SFX_NAV);
+                    s_settings_return_state = s_app_state;
                     s_prev_state = s_app_state;
                     s_app_state = APP_STATE_SETTINGS;
                     config_refresh_cache_size_async();
@@ -1192,7 +1206,7 @@ int main(int argc, char* argv[])
                 audio_play_sfx(SFX_BACK);
                 if (s_app_state == APP_STATE_SETTINGS)
                 {
-                    s_app_state = s_prev_state;
+                    s_app_state = s_settings_return_state;
                 }
                 else if (s_app_state == APP_STATE_GAME_DETAIL)
                 {
@@ -1201,7 +1215,7 @@ int main(int argc, char* argv[])
                         async_api_cancel();
                         s_is_loading = false;
                     }
-                    s_app_state = s_prev_state;
+                    s_app_state = (s_game_origin_state == APP_STATE_SEARCH) ? APP_STATE_SEARCH : APP_STATE_USER_SUMMARY;
                     s_selected_index = 0;
                     s_scroll_y = 0.0f;
                 }
