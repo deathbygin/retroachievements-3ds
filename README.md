@@ -8,9 +8,9 @@ DISCLAIMER: This application is vibe-coded; use at your own risk and do not dist
 
 ## Screenshots
 
-| Profile & Recent Games | Achievements View | Settings & Data |
+| Profile & Recent Games | Achievements View | Settings & Data | QR Code (for FBI) |
 | :---: | :---: | :---: |
-| ![Profile & Recent Games](screenshots/profile.png) | ![Achievements View](screenshots/achievements.png) | ![Settings & Data](screenshots/settings.png) |
+| ![Profile & Recent Games](screenshots/profile.png) | ![Achievements View](screenshots/achievements.png) | ![Settings & Data](screenshots/settings.png) | ![QR Code (for FBI)](screenshots/RA3DS.png) |
 
 ---
 
