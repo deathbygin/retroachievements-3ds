@@ -1,6 +1,8 @@
 # RetroAchievements for Nintendo 3DS
 
-A graphical frontend homebrew application for the Nintendo 3DS (`.3dsx`) that connects to the official [RetroAchievements](https://retroachievements.org/) Web API.
+A vibe-coded graphical frontend homebrew application for the Nintendo 3DS (`.3dsx`) that connects to the official [RetroAchievements](https://retroachievements.org/) Web API.
+
+DISCLAIMER: This application is vibe-coded; use at your own risk and do not distribute this code anywhere that AI-generated code is not allowed.
 
 ---
 
