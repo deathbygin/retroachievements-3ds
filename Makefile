@@ -109,10 +109,39 @@ ifneq ($(ROMFS),)
     export _3DSXFLAGS += --romfs=$(CURDIR)/$(ROMFS)
 endif
 
-.PHONY: all clean
+#---------------------------------------------------------------------------------
+# CIA & Banner Toolchain Detection
+#---------------------------------------------------------------------------------
+ifeq ($(shell which makerom 2>/dev/null),)
+    MAKEROM ?= $(DEVKITPRO)/tools/bin/makerom
+else
+    MAKEROM ?= makerom
+endif
+
+ifeq ($(shell which bannertool 2>/dev/null),)
+    BANNERTOOL ?= $(DEVKITPRO)/tools/bin/bannertool
+else
+    BANNERTOOL ?= bannertool
+endif
+
+BANNER_AUDIO := $(wildcard audio.wav)
+BANNER_AUDIO_FLAG := $(if $(BANNER_AUDIO),-a $(BANNER_AUDIO),)
+
+.PHONY: all clean cia
 
 all: $(BUILD) $(DEPSDIR)
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
+
+cia: all banner.bnr $(TARGET).cia
+
+banner.bnr: banner.png $(BANNER_AUDIO)
+	@echo "Creating banner $@..."
+	@$(BANNERTOOL) makebanner -i $< $(BANNER_AUDIO_FLAG) -o $@
+
+$(TARGET).cia: $(TARGET).elf $(TARGET).smdh banner.bnr template.rsf
+	@echo "Building CIA package $@..."
+	@$(MAKEROM) -f cia -o $@ -DAPP_ENCRYPTED=false -rsf template.rsf -target t -exefslogo -elf $< -icon $(TARGET).smdh -banner banner.bnr
+	@echo "Built CIA ... $@"
 
 $(BUILD):
 	@mkdir -p $@
@@ -124,7 +153,7 @@ endif
 
 clean:
 	@echo clean ...
-	@rm -rf $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(TARGET).smdh
+	@rm -rf $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(TARGET).smdh $(TARGET).cia banner.bnr $(TARGET).romfs
 
 else
 

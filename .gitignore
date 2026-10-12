@@ -6,6 +6,8 @@ build/
 *.3dsx
 *.smdh
 *.cia
+*.bnr
+*.romfs
 
 # Temporary / OS files
 .DS_Store
@@ -16,4 +18,7 @@ Thumbs.db
 # Sensitive credentials & local cache
 config.ini
 cache/
+
+# IDE / Editor files
+.vscode/
 

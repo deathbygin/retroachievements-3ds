@@ -22,20 +22,40 @@
 #define UI_ITEM_HEIGHT      42.0f
 #define UI_SCROLLBAR_WIDTH  4.0f
 
-// UI Color Palette (RGBA8)
-#define UI_CLR_BG            C2D_Color32(0x1B, 0x1B, 0x22, 0xFF)
-#define UI_CLR_BANNER        C2D_Color32(0x23, 0x25, 0x30, 0xFF)
-#define UI_CLR_CARD          C2D_Color32(0x28, 0x2A, 0x36, 0xFF)
-#define UI_CLR_CARD_SEL      C2D_Color32(0x3B, 0x3E, 0x52, 0xFF)
-#define UI_CLR_GOLD          C2D_Color32(0xD4, 0xAF, 0x37, 0xFF)
-#define UI_CLR_GOLD_DIM      C2D_Color32(0x8A, 0x72, 0x24, 0xFF)
-#define UI_CLR_TEXT_WHITE    C2D_Color32(0xF8, 0xF8, 0xF2, 0xFF)
-#define UI_CLR_TEXT_DIM      C2D_Color32(0x9A, 0x9B, 0xA2, 0xFF)
-#define UI_CLR_GREEN         C2D_Color32(0x50, 0xFA, 0x7B, 0xFF)
-#define UI_CLR_RED           C2D_Color32(0xFF, 0x55, 0x55, 0xFF)
-#define UI_CLR_BLUE          C2D_Color32(0x8B, 0xE9, 0xFD, 0xFF)
-#define UI_CLR_BORDER        C2D_Color32(0x44, 0x47, 0x5A, 0xFF)
-#define UI_CLR_PROGRESS_BG   C2D_Color32(0x18, 0x18, 0x1E, 0xFF)
+// Cyberpunk Glassmorphic Color Palette (RGBA8)
+#define UI_CLR_CYBER_BG         C2D_Color32(0x08, 0x08, 0x0C, 0xFF) // #08080C Obsidian background
+#define UI_CLR_CYBER_PANEL      C2D_Color32(0x0E, 0x11, 0x1A, 0xEA) // Frosted glass dark base
+#define UI_CLR_CYBER_PANEL_SEL  C2D_Color32(0x14, 0x1A, 0x2C, 0xF2) // Selected glass dark base
+#define UI_CLR_CYBER_BANNER     C2D_Color32(0x0A, 0x0C, 0x14, 0xF8) // Cyber header/footer banner
+#define UI_CLR_CYBER_CYAN       C2D_Color32(0x00, 0xFF, 0xFF, 0xFF) // #00FFFF Neon Cyan
+#define UI_CLR_CYBER_PINK       C2D_Color32(0xFF, 0x00, 0x7F, 0xFF) // #FF007F Cyber Pink / Magenta
+#define UI_CLR_CYBER_ORANGE     C2D_Color32(0xFF, 0x55, 0x00, 0xFF) // #FF5500 Cyber Neon Orange
+#define UI_CLR_CYBER_AMBER      C2D_Color32(0xFF, 0xAA, 0x00, 0xFF) // #FFAA00 Amber Gold
+#define UI_CLR_CYBER_GREEN      C2D_Color32(0x00, 0xFF, 0x88, 0xFF) // #00FF88 Neon Emerald Green
+#define UI_CLR_CYBER_RED        C2D_Color32(0xFF, 0x33, 0x44, 0xFF) // #FF3344 Neon Crimson Red
+#define UI_CLR_CYBER_BORDER     C2D_Color32(0x1B, 0x25, 0x3C, 0xD0) // Glass panel boundary
+#define UI_CLR_CYBER_BORDER_HI  C2D_Color32(0x00, 0xE5, 0xFF, 0x80) // Cyan glass border highlight
+#define UI_CLR_CYBER_WHITE      C2D_Color32(0xFF, 0xFF, 0xFF, 0xFF) // Glowing white
+#define UI_CLR_CYBER_TEXT_DIM   C2D_Color32(0x82, 0x90, 0xAC, 0xFF) // Cool muted slate cyan
+#define UI_CLR_CYBER_LABEL      C2D_Color32(0x55, 0xC4, 0xFF, 0xFF) // Cyber blue labels
+#define UI_CLR_CYBER_PROGRESS   C2D_Color32(0x0A, 0x0E, 0x18, 0xFF) // Progress track
+#define UI_CLR_CYBER_SHEEN      C2D_Color32(0xFF, 0xFF, 0xFF, 0x30) // Glass specular sheen
+#define UI_CLR_CYBER_GRID       C2D_Color32(0x14, 0x1C, 0x2E, 0x30) // Subtle background grid lines
+
+// Backwards-compatible aliases
+#define UI_CLR_BG            UI_CLR_CYBER_BG
+#define UI_CLR_BANNER        UI_CLR_CYBER_BANNER
+#define UI_CLR_CARD          UI_CLR_CYBER_PANEL
+#define UI_CLR_CARD_SEL      UI_CLR_CYBER_PANEL_SEL
+#define UI_CLR_GOLD          UI_CLR_CYBER_AMBER
+#define UI_CLR_GOLD_DIM      C2D_Color32(0x9E, 0x6E, 0x10, 0xFF)
+#define UI_CLR_TEXT_WHITE    UI_CLR_CYBER_WHITE
+#define UI_CLR_TEXT_DIM      UI_CLR_CYBER_TEXT_DIM
+#define UI_CLR_GREEN         UI_CLR_CYBER_GREEN
+#define UI_CLR_RED           UI_CLR_CYBER_RED
+#define UI_CLR_BLUE          UI_CLR_CYBER_CYAN
+#define UI_CLR_BORDER        UI_CLR_CYBER_BORDER
+#define UI_CLR_PROGRESS_BG   UI_CLR_CYBER_PROGRESS
 
 #define MAX_SEARCH_RESULTS  32
 
@@ -131,6 +151,11 @@ void ui_draw_settings_icon(float x, float y, u32 color);
  * @brief Render 2D vector back/return arrow icon using primitives.
  */
 void ui_draw_back_icon(float x, float y, u32 color);
+
+/**
+ * @brief Render simulated glassmorphic panel with specular glare and animated cyber neon border.
+ */
+void ui_draw_glass_panel(float x, float y, float z, float w, float h, u32 accent_color, bool is_selected, float pulse);
 
 /**
  * @brief Draw Top Screen layout (Profile, stats, selected item detail card, setup, settings).

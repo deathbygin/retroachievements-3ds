@@ -168,6 +168,13 @@ static void trigger_fetch_game_progress(uint32_t game_id)
         return;
     }
 
+    if (s_game_progress_loaded)
+    {
+        ra_game_progress_free(&s_game_progress);
+    }
+    memset(&s_game_progress, 0, sizeof(s_game_progress));
+    s_game_progress_loaded = false;
+
     s_is_loading = true;
     s_prev_state = s_app_state;
     s_app_state = APP_STATE_GAME_DETAIL;
