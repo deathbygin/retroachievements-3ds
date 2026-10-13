@@ -82,5 +82,5 @@ preferred_screen = 0
 | **START** | Clean exit to HOME Menu or Homebrew Launcher |
 | **Touch Screen** | Tap cards, buttons, or drag to scroll lists directly |
 
-##Known Issues
+## Known Issues
 - Images are slow to load on O3DS.
